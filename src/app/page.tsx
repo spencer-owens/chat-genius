@@ -1,101 +1,132 @@
-import Image from "next/image";
+'use client'
+
+import { useState } from 'react'
+import { Layout } from '@/components/layout/Layout'
+import { ChannelList } from '@/components/channels/ChannelList'
+import { DirectMessageList } from '@/components/dm/DirectMessageList'
+import { MessageList } from '@/components/chat/MessageList'
+import { MessageInput } from '@/components/chat/MessageInput'
+import { MessageThread } from '@/components/chat/MessageThread'
+import { SearchBar } from '@/components/shared/SearchBar'
+import { useChannels } from '@/hooks/useChannels'
+import { useMessages } from '@/hooks/useMessages'
+import { supabase } from '@/lib/supabase'
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
+  const [selectedThread, setSelectedThread] = useState<any | null>(null)
+  const { channels, loading: channelsLoading } = useChannels()
+  const { messages, loading: messagesLoading } = useMessages(selectedChannel)
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+  const handleSearch = (query: string) => {
+    console.log('Searching for:', query)
+  }
+
+  const handleSendMessage = async (content: string) => {
+    if (!selectedChannel) return
+
+    try {
+      const { data: user } = await supabase.auth.getUser()
+      if (!user.user) return
+
+      await supabase
+        .from('messages')
+        .insert([{
+          content,
+          channel_id: selectedChannel,
+          sender_id: user.user.id
+        }])
+    } catch (error) {
+      console.error('Error sending message:', error)
+    }
+  }
+
+  const handleFileUpload = async (file: File) => {
+    if (!selectedChannel) return
+
+    try {
+      const { data: user } = await supabase.auth.getUser()
+      if (!user.user) return
+
+      const { data: uploadData, error: uploadError } = await supabase
+        .storage
+        .from('files')
+        .upload(`${Date.now()}-${file.name}`, file)
+
+      if (uploadError) throw uploadError
+
+      await supabase
+        .from('files')
+        .insert([{
+          name: file.name,
+          url: uploadData.path,
+          uploaded_by: user.user.id,
+          channel_id: selectedChannel
+        }])
+    } catch (error) {
+      console.error('Error uploading file:', error)
+    }
+  }
+
+  return (
+    <Layout>
+      <div className="flex h-full">
+        {/* Left Sidebar */}
+        <div className="w-64 bg-gray-800 flex flex-col">
+          <div className="p-4">
+            <SearchBar onSearch={handleSearch} placeholder="Search messages..." />
+          </div>
+          
+          <div className="flex-1 overflow-y-auto">
+            {!channelsLoading && (
+              <ChannelList
+                channels={channels}
+                currentChannelId={selectedChannel}
+                onChannelSelect={setSelectedChannel}
+                isAdmin={true}
+              />
+            )}
+            <DirectMessageList
+              users={[]} // We'll implement this later
+              onUserSelect={(userId) => console.log('Selected user:', userId)}
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
+
+        {/* Main Chat Area */}
+        <div className="flex-1 flex flex-col bg-gray-900">
+          <div className="p-4 border-b border-gray-700">
+            <h2 className="text-lg font-medium text-white">
+              # {selectedChannel ? channels.find(c => c.id === selectedChannel)?.name : 'general'}
+            </h2>
+          </div>
+
+          <div className="flex-1 flex">
+            <div className={`flex-1 flex flex-col ${selectedThread ? 'border-r border-gray-700' : ''}`}>
+              {!messagesLoading && (
+                <MessageList
+                  messages={messages}
+                  onReaction={(messageId, emoji) => console.log('Reaction:', messageId, emoji)}
+                  onThreadClick={setSelectedThread}
+                />
+              )}
+              <MessageInput
+                onSend={handleSendMessage}
+                onFileUpload={handleFileUpload}
+              />
+            </div>
+
+            {selectedThread && (
+              <MessageThread
+                parentMessage={selectedThread}
+                replies={[]}
+                onClose={() => setSelectedThread(null)}
+                onReply={(content) => console.log('Thread reply:', content)}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
 }
