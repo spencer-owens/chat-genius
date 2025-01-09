@@ -13,6 +13,7 @@ import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { use } from 'react'
 import { Layout } from '@/components/layout/Layout'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
 
 interface PageProps {
   params: Promise<{ channelId: string }>
@@ -22,9 +23,10 @@ export default function ChannelPage({ params }: PageProps) {
   const { channelId } = use(params)
   const [selectedThread, setSelectedThread] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
-  const { messages, loading: messagesLoading } = useMessages(channelId)
+  const { messages, loading: messagesLoading, sendMessage } = useMessages(channelId)
   const { channels, loading: channelsLoading } = useChannels()
   const { markChannelAsRead } = useUnreadCounts()
+  const { user: currentUser } = useCurrentUser()
   const supabase = createClient()
 
   const channel = channels.find(c => c.id === channelId)
@@ -35,19 +37,12 @@ export default function ChannelPage({ params }: PageProps) {
 
   const handleSendMessage = async (content: string) => {
     try {
-      const { error: sendError } = await supabase
-        .from('messages')
-        .insert([{
-          content,
-          channel_id: channelId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }])
-
-      if (sendError) {
-        console.error('Error sending message:', sendError)
-        throw new Error(sendError.message)
+      if (!currentUser) {
+        setError('You must be logged in to send messages')
+        return
       }
+
+      await sendMessage(content)
     } catch (error) {
       console.error('Error sending message:', error)
       setError(error instanceof Error ? error.message : 'Failed to send message')
@@ -57,15 +52,7 @@ export default function ChannelPage({ params }: PageProps) {
   return (
     <Layout>
       <div className="flex flex-col h-full bg-gray-900">
-        {error && (
-          <NotificationBanner
-            type="error"
-            message={error}
-            onClose={() => setError(null)}
-          />
-        )}
-
-        {/* Fixed Header - now truly fixed */}
+        {/* Fixed Header */}
         <div className="flex-none sticky top-0 z-10 bg-gray-900 p-4 border-b border-gray-700">
           <div className="flex items-center space-x-3">
             <div>
@@ -80,6 +67,17 @@ export default function ChannelPage({ params }: PageProps) {
             </div>
           </div>
         </div>
+
+        {/* Error Banner - moved inside scrollable area but at the top */}
+        {error && (
+          <div className="flex-none px-4 py-2 bg-gray-900">
+            <NotificationBanner
+              type="error"
+              message={error}
+              onClose={() => setError(null)}
+            />
+          </div>
+        )}
 
         {/* Scrollable Message Area */}
         <div className="flex-1 min-h-0">

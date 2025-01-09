@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { useCurrentUser } from './useCurrentUser'
 
 interface DirectMessage {
   id: string
@@ -23,6 +23,11 @@ export function useDirectMessages(otherUserId: string | null) {
   const { user: currentUser } = useCurrentUser()
   const supabase = createClient()
 
+  // Debug function
+  const logWithTime = (message: string, data?: any) => {
+    console.log(`[${new Date().toISOString()}] ${message}`, data || '')
+  }
+
   useEffect(() => {
     if (!otherUserId || !currentUser) {
       setMessages([])
@@ -30,8 +35,11 @@ export function useDirectMessages(otherUserId: string | null) {
       return
     }
 
+    logWithTime('Setting up DM hook', { currentUser: currentUser.id, otherUser: otherUserId })
+
     async function fetchMessages() {
       try {
+        logWithTime('Fetching messages')
         const { data, error } = await supabase
           .from('direct_messages')
           .select(`
@@ -51,6 +59,8 @@ export function useDirectMessages(otherUserId: string | null) {
 
         if (error) throw error
 
+        logWithTime('Messages fetched', { count: data?.length })
+
         const formattedMessages: DirectMessage[] = (data || []).map(msg => ({
           ...msg,
           type: 'dm'
@@ -67,33 +77,114 @@ export function useDirectMessages(otherUserId: string | null) {
 
     fetchMessages()
 
-    // Set up real-time subscription for this conversation
+    // Simpler subscription pattern
+    const channelName = `direct_messages_${[currentUser.id, otherUserId].sort().join('_')}`
+    logWithTime('Creating channel', { channelName })
+
     const channel = supabase
-      .channel(`dm:${[currentUser.id, otherUserId].sort().join(':')}`)
-      .on('postgres_changes',
+      .channel(channelName)
+      .on(
+        'postgres_changes',
         {
-          event: '*',
+          event: 'INSERT',
           schema: 'public',
           table: 'direct_messages',
           filter: `or(and(sender_id.eq.${currentUser.id},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${currentUser.id}))`
         },
-        (payload) => {
-          console.log('DM change received:', payload)
-          if (payload.eventType === 'INSERT') {
-            // Optimistically update the messages
-            setMessages(prev => [...prev, payload.new])
-          } else {
-            // For other changes, refetch to ensure consistency
-            fetchMessages()
+        async (payload) => {
+          logWithTime('Received new message payload', payload)
+
+          // Fetch the complete message to ensure we have all related data
+          const { data, error } = await supabase
+            .from('direct_messages')
+            .select(`
+              *,
+              sender:users!sender_id(
+                id,
+                username,
+                status,
+                profile_picture
+              )
+            `)
+            .eq('id', payload.new.id)
+            .single()
+
+          if (error) {
+            console.error('Error fetching new message details:', error)
+            return
           }
+
+          logWithTime('Adding new message to state', data)
+          
+          const newMessage: DirectMessage = {
+            ...data,
+            type: 'dm'
+          }
+
+          setMessages(prev => [...prev, newMessage])
         }
       )
-      .subscribe()
+      .subscribe((status, err) => {
+        logWithTime('Subscription status changed', { status, error: err })
+      })
 
     return () => {
-      channel.unsubscribe()
+      logWithTime('Cleaning up subscription', { channelName })
+      supabase.removeChannel(channel)
     }
   }, [currentUser, otherUserId])
 
-  return { messages, loading, error }
+  const sendMessage = async (content: string) => {
+    if (!currentUser || !otherUserId) {
+      throw new Error('Must be logged in to send messages')
+    }
+
+    const newMessage = {
+      content,
+      sender_id: currentUser.id,
+      receiver_id: otherUserId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+
+    logWithTime('Sending message:', newMessage)
+
+    // Add optimistic message
+    const optimisticMessage: DirectMessage = {
+      ...newMessage,
+      id: `temp-${Date.now()}`,
+      type: 'dm',
+      sender: {
+        id: currentUser.id,
+        username: currentUser.username,
+        status: 'online',
+        profile_picture: currentUser.profile_picture
+      }
+    }
+
+    setMessages(prev => [...prev, optimisticMessage])
+
+    try {
+      const { error: sendError } = await supabase
+        .from('direct_messages')
+        .insert([newMessage])
+
+      if (sendError) {
+        // Remove optimistic message on error
+        setMessages(prev => prev.filter(msg => msg.id !== optimisticMessage.id))
+        throw sendError
+      }
+    } catch (error) {
+      // Remove optimistic message on error
+      setMessages(prev => prev.filter(msg => msg.id !== optimisticMessage.id))
+      throw error
+    }
+  }
+
+  return { 
+    messages, 
+    loading, 
+    error,
+    sendMessage
+  }
 } 

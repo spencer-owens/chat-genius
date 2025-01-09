@@ -20,7 +20,7 @@ interface PageProps {
 export default function DMPage({ params }: PageProps) {
   const { userId } = use(params)
   const [error, setError] = useState<string | null>(null)
-  const { messages, loading: messagesLoading } = useDirectMessages(userId)
+  const { messages, loading: messagesLoading, sendMessage } = useDirectMessages(userId)
   const { users, loading: usersLoading } = useUsers()
   const { user: currentUser } = useCurrentUser()
   const otherUser = users.find(u => u.id === userId)
@@ -37,20 +37,7 @@ export default function DMPage({ params }: PageProps) {
         return
       }
 
-      const { error: sendError } = await supabase
-        .from('direct_messages')
-        .insert([{
-          content,
-          sender_id: currentUser.id,
-          receiver_id: userId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }])
-
-      if (sendError) {
-        console.error('Error sending message:', sendError)
-        throw new Error(sendError.message)
-      }
+      await sendMessage(content)
     } catch (error) {
       console.error('Error sending message:', error)
       setError(error instanceof Error ? error.message : 'Failed to send message')
