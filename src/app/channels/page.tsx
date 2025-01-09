@@ -9,6 +9,7 @@ import { SearchBar } from '@/components/shared/SearchBar'
 import { NotificationBanner } from '@/components/shared/NotificationBanner'
 import { Hash, Lock, Loader2, Plus } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import Link from 'next/link'
 
 export default function ChannelsPage() {
   const { channels, loading: channelsLoading } = useChannels()
@@ -96,33 +97,31 @@ export default function ChannelsPage() {
         </div>
 
         <div className="space-y-4">
-          {filteredChannels.map((channel) => {
-            const isMember = channel.memberships?.some(
-              (m: any) => m.user_id === user?.id
-            )
-
+          {channels.map((channel) => {
+            const isMember = channel.memberships?.some(m => m.user_id === user?.id)
+            
             return (
-              <div
-                key={channel.id}
-                className="p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center">
-                    {channel.is_private ? (
-                      <Lock className="h-5 w-5 text-gray-400 mr-2" />
-                    ) : (
-                      <Hash className="h-5 w-5 text-gray-400 mr-2" />
-                    )}
-                    <div>
-                      <h3 className="text-lg font-medium text-white">
+              <div key={channel.id} className="bg-gray-800 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <Link
+                      href={`/channels/${channel.id}`}
+                      className="text-lg font-medium text-white hover:text-blue-400"
+                    >
+                      <div className="flex items-center">
+                        {channel.is_private ? (
+                          <Lock className="h-4 w-4 mr-2" />
+                        ) : (
+                          <Hash className="h-4 w-4 mr-2" />
+                        )}
                         {channel.name}
-                      </h3>
-                      {channel.description && (
-                        <p className="text-sm text-gray-400 mt-1">
-                          {channel.description}
-                        </p>
-                      )}
-                    </div>
+                      </div>
+                    </Link>
+                    {channel.description && (
+                      <p className="mt-1 text-sm text-gray-400">
+                        {channel.description}
+                      </p>
+                    )}
                   </div>
                   
                   <button
@@ -138,16 +137,6 @@ export default function ChannelsPage() {
                   >
                     {isMember ? 'Leave' : 'Join'}
                   </button>
-                </div>
-
-                <div className="mt-4 flex items-center text-sm text-gray-400">
-                  <span>{channel.memberships?.length || 0} members</span>
-                  {channel.is_private && (
-                    <span className="ml-4 flex items-center">
-                      <Lock className="h-4 w-4 mr-1" />
-                      Private Channel
-                    </span>
-                  )}
                 </div>
               </div>
             )

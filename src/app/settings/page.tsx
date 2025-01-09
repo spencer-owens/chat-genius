@@ -1,18 +1,19 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import { Layout } from '@/components/layout/Layout'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { supabase } from '@/lib/supabase'
-import { createClient } from '@/lib/supabase/client'
 import { UserPresenceIndicator } from '@/components/shared/UserPresenceIndicator'
 import { NotificationBanner } from '@/components/shared/NotificationBanner'
-import { Camera, Loader2, LogOut } from 'lucide-react'
+import { Camera, Loader2 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 
 export default function SettingsPage() {
-  const { user, loading: userLoading } = useCurrentUser()
   const router = useRouter()
+  const supabase = createClient()
+  const { user, loading: userLoading } = useCurrentUser()
   const [isEditing, setIsEditing] = useState(false)
   const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -92,16 +93,12 @@ export default function SettingsPage() {
 
   const handleLogout = async () => {
     try {
-      const supabase = createClient()
       await supabase.auth.signOut()
       router.push('/login')
       router.refresh()
     } catch (error) {
-      console.error('Error signing out:', error)
-      setNotification({
-        type: 'error',
-        message: 'Failed to sign out. Please try again.'
-      })
+      console.error('Error logging out:', error)
+      setNotification({ type: 'error', message: 'Error logging out' })
     }
   }
 
@@ -132,10 +129,9 @@ export default function SettingsPage() {
           <h1 className="text-2xl font-bold text-white">Settings</h1>
           <button
             onClick={handleLogout}
-            className="flex items-center px-4 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-md transition-colors"
+            className="px-4 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700"
           >
-            <LogOut className="h-4 w-4 mr-2" />
-            Sign Out
+            Log Out
           </button>
         </div>
 

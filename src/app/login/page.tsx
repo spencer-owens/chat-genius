@@ -14,6 +14,7 @@ export default function LoginPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const message = searchParams.get('message')
+  const supabase = createClient()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -21,20 +22,18 @@ export default function LoginPage() {
       setLoading(true)
       setError(null)
       
-      const supabase = createClient()
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
       if (error) {
-        console.error('Login error:', error)
         setError(error.message)
         return
       }
 
       router.push('/')
-      router.refresh() // Important: refresh the page to update the server state
+      router.refresh() // Important: refresh the router to update the session
     } catch (error) {
       console.error('Unexpected error:', error)
       setError('An unexpected error occurred')

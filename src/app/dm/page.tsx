@@ -1,100 +1,73 @@
 'use client'
 
-import { useState } from 'react'
-import { Layout } from '@/components/layout/Layout'
-import { DirectMessageList } from '@/components/dm/DirectMessageList'
-import { MessageList } from '@/components/chat/MessageList'
-import { MessageInput } from '@/components/chat/MessageInput'
-import { SearchBar } from '@/components/shared/SearchBar'
-import { useDirectMessages } from '@/hooks/useDirectMessages'
-import { supabase } from '@/lib/supabase'
 import { useUsers } from '@/hooks/useUsers'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
+import Link from 'next/link'
+import { Circle } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { format } from 'date-fns'
+import { useDirectMessages } from '@/hooks/useDirectMessages'
 
-export default function DirectMessagesPage() {
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
-  const { messages, loading } = useDirectMessages(selectedUserId)
-  const { users, loading: usersLoading } = useUsers()
+export default function DMPage() {
+  const { users } = useUsers()
+  const { user: currentUser } = useCurrentUser()
+  const otherUsers = users.filter(u => u.id !== currentUser?.id)
 
-  const handleSearch = (query: string) => {
-    console.log('Searching for:', query)
-  }
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-bold text-white mb-8">Recent Conversations</h1>
+      
+      <div className="space-y-4">
+        {otherUsers.map((user) => (
+          <Link
+            key={user.id}
+            href={`/dm/${user.id}`}
+            className="block p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors"
+          >
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                {user.profile_picture ? (
+                  <img
+                    src={user.profile_picture}
+                    alt={user.username}
+                    className="h-12 w-12 rounded-full"
+                  />
+                ) : (
+                  <div className="h-12 w-12 rounded-full bg-gray-600 flex items-center justify-center">
+                    <span className="text-white text-lg">{user.username[0]}</span>
+                  </div>
+                )}
+              </div>
+              <div className="ml-4 flex-1">
+                <div className="flex items-center">
+                  <h2 className="text-lg font-medium text-white">{user.username}</h2>
+                  <Circle className={cn(
+                    'ml-2 h-2 w-2',
+                    user.status === 'online' ? 'text-green-500' : 'text-gray-500'
+                  )} />
+                </div>
+                <MessagePreview userId={user.id} />
+              </div>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
 
-  const handleSendMessage = async (content: string) => {
-    if (!selectedUserId) return
+function MessagePreview({ userId }: { userId: string }) {
+  const { messages, loading } = useDirectMessages(userId)
+  const lastMessage = messages[messages.length - 1]
 
-    try {
-      const { data: currentUser } = await supabase.auth.getUser()
-      if (!currentUser.user) return
-
-      await supabase
-        .from('direct_messages')
-        .insert([{
-          content,
-          sender_id: currentUser.user.id,
-          receiver_id: selectedUserId
-        }])
-    } catch (error) {
-      console.error('Error sending message:', error)
-    }
+  if (loading || !lastMessage) {
+    return <p className="text-sm text-gray-400">No messages yet</p>
   }
 
   return (
-    <Layout>
-      <div className="flex h-full">
-        {/* Left Sidebar */}
-        <div className="w-64 bg-gray-800 flex flex-col">
-          <div className="p-4">
-            <SearchBar onSearch={handleSearch} placeholder="Search users..." />
-          </div>
-          
-          <div className="flex-1 overflow-y-auto">
-            {!usersLoading && (
-              <DirectMessageList
-                users={users}
-                currentUserId={selectedUserId}
-                onUserSelect={setSelectedUserId}
-              />
-            )}
-          </div>
-        </div>
-
-        {/* Main Chat Area */}
-        <div className="flex-1 flex flex-col bg-gray-900">
-          {selectedUserId ? (
-            <>
-              <div className="p-4 border-b border-gray-700">
-                <h2 className="text-lg font-medium text-white">
-                  {messages[0]?.sender.username || messages[0]?.receiver.username}
-                </h2>
-              </div>
-
-              <div className="flex-1 flex flex-col">
-                {!loading && (
-                  <MessageList
-                    messages={messages.map(msg => ({
-                      id: msg.id,
-                      content: msg.content,
-                      created_at: msg.created_at,
-                      sender: msg.sender,
-                      reactions: []
-                    }))}
-                    onReaction={() => {}}
-                    onThreadClick={() => {}}
-                  />
-                )}
-                <MessageInput
-                  onSend={handleSendMessage}
-                  onFileUpload={() => {}}
-                />
-              </div>
-            </>
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-gray-500">
-              Select a user to start messaging
-            </div>
-          )}
-        </div>
-      </div>
-    </Layout>
+    <div className="text-sm text-gray-400">
+      <span className="mr-2">{lastMessage.content}</span>
+      <span>{format(new Date(lastMessage.created_at), 'MMM d, h:mm a')}</span>
+    </div>
   )
 } 
