@@ -20,6 +20,29 @@ import { SkeletonLoader } from '../shared/SkeletonLoader'
 import { useUnreadCounts } from '@/hooks/useUnreadCounts'
 import { ChannelLink } from '../channels/ChannelLink'
 import { useDMUsers } from '@/hooks/useDMUsers'
+import { ReactNode } from 'react'
+
+interface Channel {
+  id: string
+  name: string
+  is_private: boolean
+  memberships?: Array<{
+    user_id: string
+  }>
+}
+
+interface UnreadCount {
+  count: number
+  lastReadAt: string | null
+}
+
+interface ExpandableNavItemProps {
+  title: ReactNode
+  linkHref: string
+  isActive: boolean
+  storageKey: string
+  children: ReactNode
+}
 
 const topNavItems = [
   { name: 'Home', href: '/', icon: Home },
@@ -51,15 +74,17 @@ export function Sidebar() {
   const publicChannels = channels.filter(c => !c.is_private)
   const privateChannels = channels.filter(c => c.is_private)
   const userPrivateChannels = privateChannels.filter(
-    c => c.memberships?.some(m => m.user_id === user?.id)
+    c => c.memberships?.some((m: { user_id: string }) => m.user_id === user?.id)
   )
+
+  const totalUnreadDMs = Object.values(dmUnreadCounts).reduce((a, b) => a + (b?.count || 0), 0)
 
   return (
     <div className="flex h-full w-64 flex-col bg-gray-900">
       <div className="flex h-16 items-center justify-between px-4">
         <h1 className="text-xl font-bold text-white">Chat Genius</h1>
-        {(Object.values(channelUnreadCounts).some(count => count > 0) ||
-         Object.values(dmUnreadCounts).some(count => count > 0)) && (
+        {(Object.values(channelUnreadCounts).some(c => (c?.count || 0) > 0) ||
+         Object.values(dmUnreadCounts).some(c => (c?.count || 0) > 0)) && (
           <button
             onClick={markAllAsRead}
             className="text-xs text-gray-400 hover:text-white"
@@ -94,18 +119,9 @@ export function Sidebar() {
           )
         })}
 
-        {/* Channels section */}
+        {/* Public Channels section */}
         <ExpandableNavItem
-          title={
-            <div className="flex items-center justify-between w-full">
-              <span>Channels</span>
-              {Object.values(channelUnreadCounts).reduce((a, b) => a + b, 0) > 0 && (
-                <span className="bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">
-                  {Object.values(channelUnreadCounts).reduce((a, b) => a + b, 0)}
-                </span>
-              )}
-            </div>
-          }
+          title="Channels"
           linkHref="/channels"
           isActive={pathname === '/channels'}
           storageKey="sidebar-channels-expanded"
@@ -114,48 +130,52 @@ export function Sidebar() {
             <div className="space-y-2 px-2">
               <SkeletonLoader className="h-6 w-full" />
               <SkeletonLoader className="h-6 w-3/4" />
-              <SkeletonLoader className="h-6 w-5/6" />
             </div>
-          ) : channels.length === 0 ? (
+          ) : publicChannels.length === 0 ? (
             <div className="px-2 py-1 text-sm text-gray-400">
               No channels available
             </div>
           ) : (
-            <>
-              <div className="px-2 py-1">
-                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Public
-                </h3>
-                <div className="mt-1 space-y-1">
-                  {publicChannels.map((channel) => (
-                    <ChannelLink
-                      key={channel.id}
-                      channel={channel}
-                      isActive={isChannelActive(channel.id)}
-                      unreadCount={channelUnreadCounts[channel.id]}
-                    />
-                  ))}
-                </div>
-              </div>
+            <div className="space-y-1">
+              {publicChannels.map((channel) => (
+                <ChannelLink
+                  key={channel.id}
+                  channel={channel}
+                  isActive={isChannelActive(channel.id)}
+                  unreadCount={channelUnreadCounts[channel.id]?.count || 0}
+                />
+              ))}
+            </div>
+          )}
+        </ExpandableNavItem>
 
-              {userPrivateChannels.length > 0 && (
-                <div className="mt-4 px-2 py-1">
-                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                    Private
-                  </h3>
-                  <div className="mt-1 space-y-1">
-                    {userPrivateChannels.map((channel) => (
-                      <ChannelLink
-                        key={channel.id}
-                        channel={channel}
-                        isActive={isChannelActive(channel.id)}
-                        unreadCount={channelUnreadCounts[channel.id]}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
+        {/* Private Channels section */}
+        <ExpandableNavItem
+          title="Private Channels"
+          linkHref="/channels/private"
+          isActive={pathname === '/channels/private'}
+          storageKey="sidebar-private-channels-expanded"
+        >
+          {channelsLoading ? (
+            <div className="space-y-2 px-2">
+              <SkeletonLoader className="h-6 w-full" />
+              <SkeletonLoader className="h-6 w-3/4" />
+            </div>
+          ) : userPrivateChannels.length === 0 ? (
+            <div className="px-2 py-1 text-sm text-gray-400">
+              No private channels
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {userPrivateChannels.map((channel) => (
+                <ChannelLink
+                  key={channel.id}
+                  channel={channel}
+                  isActive={isChannelActive(channel.id)}
+                  unreadCount={channelUnreadCounts[channel.id]?.count || 0}
+                />
+              ))}
+            </div>
           )}
         </ExpandableNavItem>
 
@@ -164,9 +184,9 @@ export function Sidebar() {
           title={
             <div className="flex items-center justify-between w-full">
               <span>Direct Messages</span>
-              {Object.values(dmUnreadCounts).reduce((a, b) => a + b, 0) > 0 && (
+              {totalUnreadDMs > 0 && (
                 <span className="bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">
-                  {Object.values(dmUnreadCounts).reduce((a, b) => a + b, 0)}
+                  {totalUnreadDMs}
                 </span>
               )}
             </div>
@@ -201,9 +221,9 @@ export function Sidebar() {
                   user.status === 'online' ? 'text-green-500' : 'text-gray-500'
                 )} />
                 <span className="flex-1">{user.username}</span>
-                {dmUnreadCounts[user.id] > 0 && (
+                {dmUnreadCounts[user.id]?.count > 0 && (
                   <span className="ml-2 bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">
-                    {dmUnreadCounts[user.id]}
+                    {dmUnreadCounts[user.id].count}
                   </span>
                 )}
               </Link>

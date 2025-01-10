@@ -5,7 +5,7 @@ import { MessageInput } from '@/components/chat/MessageInput'
 import { MessageThread } from '@/components/chat/MessageThread'
 import { useMessages } from '@/hooks/useMessages'
 import { useChannels } from '@/hooks/useChannels'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useUnreadCounts } from '@/hooks/useUnreadCounts'
 import { NotificationBanner } from '@/components/shared/NotificationBanner'
@@ -28,6 +28,13 @@ export default function ChannelPage({ params }: PageProps) {
   const { markChannelAsRead } = useUnreadCounts()
   const { user: currentUser } = useCurrentUser()
   const supabase = createClient()
+
+  // Mark channel as read when we navigate to it
+  useEffect(() => {
+    if (channelId && currentUser) {
+      markChannelAsRead(channelId)
+    }
+  }, [channelId, currentUser, markChannelAsRead])
 
   const channel = channels.find(c => c.id === channelId)
 

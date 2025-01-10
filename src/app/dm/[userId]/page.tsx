@@ -5,13 +5,14 @@ import { MessageList } from '@/components/chat/MessageList'
 import { MessageInput } from '@/components/chat/MessageInput'
 import { useDirectMessages } from '@/hooks/useDirectMessages'
 import { useUsers } from '@/hooks/useUsers'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { NotificationBanner } from '@/components/shared/NotificationBanner'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { Loader2, Circle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { use } from 'react'
+import { useUnreadCounts } from '@/hooks/useUnreadCounts'
 
 interface PageProps {
   params: Promise<{ userId: string }>
@@ -23,6 +24,14 @@ export default function DMPage({ params }: PageProps) {
   const { messages, loading: messagesLoading, sendMessage } = useDirectMessages(userId)
   const { users, loading: usersLoading } = useUsers()
   const { user: currentUser } = useCurrentUser()
+  const { markDmAsRead } = useUnreadCounts()
+
+  useEffect(() => {
+    if (userId && currentUser) {
+      markDmAsRead(userId)
+    }
+  }, [userId, currentUser, markDmAsRead])
+
   const otherUser = users.find(u => u.id === userId)
   const supabase = createClient()
 
