@@ -7,6 +7,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { FileAttachment } from './FileAttachment'
 import { Message, ChannelMessage } from '@/types/messages'
 import { cn } from '@/lib/utils'
+import { MessageReactions } from './MessageReactions'
 
 interface MessageListProps {
   messages: Message[]
@@ -97,23 +98,15 @@ export function MessageList({ messages, onReaction, onThreadClick, type }: Messa
                           )}
                         </button>
                       )}
-                      {onReaction && (
-                        <div className="flex space-x-1">
-                          {message.reactions.map((reaction, idx) => (
-                            <button
-                              key={`${reaction.emoji}-${idx}`}
-                              onClick={() => onReaction(message.id, reaction.emoji)}
-                              className="px-2 py-1 rounded bg-gray-700 text-xs hover:bg-gray-600"
-                            >
-                              {reaction.emoji}
-                            </button>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
               </div>
+
+              <MessageReactions 
+                messageId={message.id} 
+                messageType={type}
+              />
             </div>
           ))}
           <div ref={messagesEndRef} />
