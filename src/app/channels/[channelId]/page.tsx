@@ -42,14 +42,20 @@ export default function ChannelPage({ params }: PageProps) {
     return null
   }
 
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (
+    content: string,
+    fileMetadata?: { id: string; url: string; name: string; type: string; size: number }
+  ) => {
     try {
       if (!currentUser) {
         setError('You must be logged in to send messages')
         return
       }
 
-      await sendMessage(content)
+      // If we have a file but no content, use the file name as content
+      const messageContent = content || (fileMetadata ? `Shared a file: ${fileMetadata.name}` : '')
+      
+      await sendMessage(messageContent, fileMetadata)
     } catch (error) {
       console.error('Error sending message:', error)
       setError(error instanceof Error ? error.message : 'Failed to send message')
@@ -111,7 +117,7 @@ export default function ChannelPage({ params }: PageProps) {
         <div className="flex-none p-4 border-t border-gray-700">
           <MessageInput
             onSend={handleSendMessage}
-            onFileUpload={() => {}}
+            channelId={channelId}
             placeholder={`Message #${channel.name}`}
           />
         </div>

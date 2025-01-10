@@ -18,6 +18,13 @@ interface Message {
     emoji: string
     user_id: string
   }>
+  file?: {
+    id: string
+    url: string
+    name: string
+    type: string
+    size: number
+  }
 }
 
 export function useMessages(channelId: string | null) {
@@ -54,7 +61,14 @@ export function useMessages(channelId: string | null) {
               status,
               profile_picture
             ),
-            reactions(*)
+            reactions(*),
+            file:file_metadata(
+              id,
+              name,
+              type,
+              size,
+              path
+            )
           `)
           .eq('channel_id', channelId)
           .order('created_at', { ascending: true })
@@ -65,7 +79,11 @@ export function useMessages(channelId: string | null) {
 
         const formattedMessages: Message[] = (data || []).map(msg => ({
           ...msg,
-          type: 'channel'
+          type: 'channel',
+          file: msg.file ? {
+            ...msg.file,
+            url: supabase.storage.from('public-documents').getPublicUrl(msg.file.path).data.publicUrl
+          } : undefined
         }))
 
         setMessages(formattedMessages)
@@ -107,7 +125,14 @@ export function useMessages(channelId: string | null) {
                 status,
                 profile_picture
               ),
-              reactions(*)
+              reactions(*),
+              file:file_metadata(
+                id,
+                name,
+                type,
+                size,
+                path
+              )
             `)
             .eq('id', payload.new.id)
             .single()
@@ -123,7 +148,23 @@ export function useMessages(channelId: string | null) {
             // Don't add if we already have this message
             const exists = prev.some(msg => msg.id === data.id)
             if (exists) return prev
-            return [...prev, { ...data, type: 'channel' }]
+
+            // Ensure we have file data
+            const messageWithFile = {
+              ...data,
+              type: 'channel' as const,
+              file: data.file ? {
+                id: data.file.id,
+                name: data.file.name,
+                type: data.file.type,
+                size: data.file.size,
+                url: supabase.storage.from('public-documents').getPublicUrl(data.file.path).data.publicUrl
+              } : undefined
+            }
+
+            logWithTime('Formatted message with file:', messageWithFile)
+            
+            return [...prev, messageWithFile]
           })
         }
       )
@@ -149,7 +190,14 @@ export function useMessages(channelId: string | null) {
                 status,
                 profile_picture
               ),
-              reactions(*)
+              reactions(*),
+              file:file_metadata(
+                id,
+                name,
+                type,
+                size,
+                path
+              )
             `)
             .eq('id', payload.new.id)
             .single()
@@ -161,7 +209,17 @@ export function useMessages(channelId: string | null) {
 
           setMessages(prev => 
             prev.map(msg => 
-              msg.id === data.id ? { ...data, type: 'channel' } : msg
+              msg.id === data.id ? {
+                ...data,
+                type: 'channel' as const,
+                file: data.file ? {
+                  id: data.file.id,
+                  name: data.file.name,
+                  type: data.file.type,
+                  size: data.file.size,
+                  url: supabase.storage.from('public-documents').getPublicUrl(data.file.path).data.publicUrl
+                } : undefined
+              } : msg
             )
           )
         }
@@ -176,7 +234,10 @@ export function useMessages(channelId: string | null) {
     }
   }, [channelId, currentUser])
 
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (
+    content: string,
+    fileMetadata?: { id: string; url: string; name: string; type: string; size: number }
+  ) => {
     if (!currentUser || !channelId) {
       throw new Error('Must be logged in to send messages')
     }
@@ -186,7 +247,8 @@ export function useMessages(channelId: string | null) {
       channel_id: channelId,
       sender_id: currentUser.id,
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      file_id: fileMetadata?.id
     }
 
     logWithTime('Sending message:', newMessage)

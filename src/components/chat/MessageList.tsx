@@ -4,11 +4,19 @@ import { useEffect, useRef } from 'react'
 import { UserPresenceIndicator } from '../shared/UserPresenceIndicator'
 import { format } from 'date-fns'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { FileAttachment } from './FileAttachment'
 
 interface BaseMessage {
   id: string
   content: string
   created_at: string
+  file?: {
+    id: string
+    url: string
+    name: string
+    type: string
+    size: number
+  }
 }
 
 interface ChannelMessage extends BaseMessage {
@@ -94,7 +102,19 @@ export function MessageList({ messages, onReaction, onThreadClick, type }: Messa
                       {format(new Date(message.created_at), 'HH:mm')}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-300 mt-1">{message.content}</p>
+                  {message.content && (
+                    <p className="text-sm text-gray-300 mt-1">{message.content}</p>
+                  )}
+                  {message.file && (
+                    <div className="mt-2">
+                      <FileAttachment
+                        name={message.file.name}
+                        type={message.file.type}
+                        size={message.file.size}
+                        url={message.file.url}
+                      />
+                    </div>
+                  )}
                   
                   {type === 'channel' && (message as ChannelMessage).reactions && (
                     <div className="mt-2 flex items-center space-x-2">

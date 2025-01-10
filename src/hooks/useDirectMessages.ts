@@ -9,12 +9,18 @@ interface DirectMessage {
   sender_id: string
   receiver_id: string
   sender: {
-    id: string
     username: string
     status: string
     profile_picture?: string
   }
   type: 'dm'
+  file?: {
+    id: string
+    url: string
+    name: string
+    type: string
+    size: number
+  }
 }
 
 export function useDirectMessages(otherUserId: string | null) {
@@ -50,6 +56,13 @@ export function useDirectMessages(otherUserId: string | null) {
               username,
               status,
               profile_picture
+            ),
+            file:file_metadata(
+              id,
+              name,
+              type,
+              size,
+              path
             )
           `)
           .or(
@@ -64,7 +77,11 @@ export function useDirectMessages(otherUserId: string | null) {
 
         const formattedMessages: DirectMessage[] = (data || []).map(msg => ({
           ...msg,
-          type: 'dm'
+          type: 'dm',
+          file: msg.file ? {
+            ...msg.file,
+            url: supabase.storage.from('public-documents').getPublicUrl(msg.file.path).data.publicUrl
+          } : undefined
         }))
 
         setMessages(formattedMessages)
@@ -122,6 +139,13 @@ export function useDirectMessages(otherUserId: string | null) {
                 username,
                 status,
                 profile_picture
+              ),
+              file:file_metadata(
+                id,
+                name,
+                type,
+                size,
+                path
               )
             `)
             .eq('id', payload.new.id)
@@ -138,7 +162,23 @@ export function useDirectMessages(otherUserId: string | null) {
             // Don't add if we already have this message
             const exists = prev.some(msg => msg.id === data.id)
             if (exists) return prev
-            return [...prev, { ...data, type: 'dm' }]
+
+            // Ensure we have file data
+            const messageWithFile = {
+              ...data,
+              type: 'dm' as const,
+              file: data.file ? {
+                id: data.file.id,
+                name: data.file.name,
+                type: data.file.type,
+                size: data.file.size,
+                url: supabase.storage.from('public-documents').getPublicUrl(data.file.path).data.publicUrl
+              } : undefined
+            }
+
+            logWithTime('Formatted message with file:', messageWithFile)
+            
+            return [...prev, messageWithFile]
           })
         }
       )
@@ -152,7 +192,10 @@ export function useDirectMessages(otherUserId: string | null) {
     }
   }, [currentUser, otherUserId])
 
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (
+    content: string,
+    fileMetadata?: { id: string; url: string; name: string; type: string; size: number }
+  ) => {
     if (!currentUser || !otherUserId) {
       throw new Error('Must be logged in to send messages')
     }
@@ -162,10 +205,11 @@ export function useDirectMessages(otherUserId: string | null) {
       sender_id: currentUser.id,
       receiver_id: otherUserId,
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      file_id: fileMetadata?.id
     }
 
-    logWithTime('Sending message:', newMessage)
+    logWithTime('Sending DM:', newMessage)
 
     const { error: sendError } = await supabase
       .from('direct_messages')
