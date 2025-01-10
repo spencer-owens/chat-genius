@@ -1,8 +1,18 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
+interface User {
+  id: string
+  username: string
+  email: string
+  profile_picture?: string
+  status: 'online' | 'offline' | 'away' | 'busy'
+  created_at: string
+  updated_at: string
+}
+
 export function useCurrentUser() {
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
   const supabase = createClient()
@@ -40,5 +50,5 @@ export function useCurrentUser() {
     }
   }, [])
 
-  return { user, loading, error }
+  return { user, setUser, loading, error }
 } 

@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 import { use } from 'react'
 import { useUnreadCounts } from '@/hooks/useUnreadCounts'
 import { Message } from '@/types/messages'
+import { useUserPresence } from '@/hooks/useUserPresence'
 
 interface PageProps {
   params: Promise<{ userId: string }>
@@ -26,6 +27,7 @@ export default function DMPage({ params }: PageProps) {
   const { users, loading: usersLoading } = useUsers()
   const { user: currentUser } = useCurrentUser()
   const { markDmAsRead } = useUnreadCounts()
+  const { getUserStatus } = useUserPresence()
 
   useEffect(() => {
     if (userId && currentUser) {
@@ -92,11 +94,14 @@ export default function DMPage({ params }: PageProps) {
               </h2>
               <Circle className={cn(
                 'h-2 w-2',
-                otherUser.status === 'online' ? 'text-green-500' : 'text-gray-500'
+                getUserStatus(otherUser.id) === 'online' ? 'text-green-500' : 
+                getUserStatus(otherUser.id) === 'away' ? 'text-yellow-500' :
+                getUserStatus(otherUser.id) === 'busy' ? 'text-red-500' :
+                'text-gray-500'
               )} />
             </div>
-            <p className="text-sm text-gray-400">
-              {otherUser.status || 'offline'}
+            <p className="text-sm text-gray-400 capitalize">
+              {getUserStatus(otherUser.id)}
             </p>
           </div>
         </div>

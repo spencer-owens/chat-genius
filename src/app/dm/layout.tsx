@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { Circle, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { usePathname } from 'next/navigation'
+import { useUserPresence } from '@/hooks/useUserPresence'
 
 export default function DMLayout({
   children
@@ -16,6 +17,7 @@ export default function DMLayout({
   const { users, loading: usersLoading } = useUsers()
   const { user: currentUser } = useCurrentUser()
   const pathname = usePathname()
+  const { getUserStatus } = useUserPresence()
   
   const otherUsers = users.filter(u => u.id !== currentUser?.id)
 
@@ -56,10 +58,18 @@ export default function DMLayout({
                     </div>
                     <div className="ml-3">
                       <p className="text-sm font-medium text-white">{user.username}</p>
-                      <Circle className={cn(
-                        'h-2 w-2 mt-1',
-                        user.status === 'online' ? 'text-green-500' : 'text-gray-500'
-                      )} />
+                      <div className="flex items-center space-x-1">
+                        <Circle className={cn(
+                          'h-2 w-2',
+                          getUserStatus(user.id) === 'online' ? 'text-green-500' : 
+                          getUserStatus(user.id) === 'away' ? 'text-yellow-500' :
+                          getUserStatus(user.id) === 'busy' ? 'text-red-500' :
+                          'text-gray-500'
+                        )} />
+                        <span className="text-xs text-gray-400 capitalize">
+                          {getUserStatus(user.id)}
+                        </span>
+                      </div>
                     </div>
                   </Link>
                 ))}

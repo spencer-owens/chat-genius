@@ -9,7 +9,8 @@ import {
   Settings,
   Shield,
   Hash,
-  Circle
+  Circle,
+  Menu
 } from 'lucide-react'
 import { ExpandableNavItem } from './ExpandableNavItem'
 import { SearchBar } from '../shared/SearchBar'
@@ -21,6 +22,23 @@ import { useUnreadCounts } from '@/hooks/useUnreadCounts'
 import { ChannelLink } from '../channels/ChannelLink'
 import { useDMUsers } from '@/hooks/useDMUsers'
 import { ReactNode } from 'react'
+import { useUserPresence } from '@/hooks/useUserPresence'
+
+type Status = 'online' | 'offline' | 'away' | 'busy'
+
+interface User {
+  id: string
+  username: string
+  profile_picture?: string
+  status: Status
+}
+
+const statusColors: Record<Status, string> = {
+  online: 'bg-green-500',
+  offline: 'bg-gray-500',
+  away: 'bg-yellow-500',
+  busy: 'bg-red-500'
+} as const
 
 interface Channel {
   id: string
@@ -60,6 +78,7 @@ export function Sidebar() {
   const { user } = useCurrentUser()
   const { channelUnreadCounts, dmUnreadCounts, markAllAsRead } = useUnreadCounts()
   const { users: dmUsers, loading: dmUsersLoading } = useDMUsers()
+  const { updateStatus, getUserStatus } = useUserPresence()
 
   const handleSearch = (query: string) => {
     // Implement search functionality
@@ -251,6 +270,66 @@ export function Sidebar() {
           )
         })}
       </nav>
+
+      {/* User Profile Section */}
+      {user && (
+        <div className="flex-none p-4 border-t border-gray-700">
+          <div className="flex items-center space-x-3">
+            <div className="relative flex-shrink-0 group">
+              {/* Invisible extended hover area */}
+              <div className="absolute -inset-2" />
+              
+              {user.profile_picture ? (
+                <img
+                  src={user.profile_picture}
+                  alt={user.username}
+                  className="h-8 w-8 rounded-full cursor-pointer relative"
+                />
+              ) : (
+                <div className="h-8 w-8 rounded-full bg-gray-600 flex items-center justify-center cursor-pointer relative">
+                  <span className="text-white">{user.username[0]}</span>
+                </div>
+              )}
+              <div className="absolute -bottom-0.5 -right-0.5">
+                <div className={cn(
+                  'h-3 w-3 rounded-full border-2 border-gray-900 cursor-pointer relative',
+                  statusColors[getUserStatus(user.id)]
+                )} />
+              </div>
+
+              {/* Status Menu */}
+              <div 
+                className="absolute left-0 top-0 -translate-y-full hidden group-hover:block w-48 bg-gray-800 rounded-md shadow-lg py-1 z-50 [transition:opacity_0.15s_ease] opacity-0 group-hover:opacity-100"
+                style={{ 
+                  filter: 'drop-shadow(0 0 10px rgba(0,0,0,0.5))',
+                }}
+              >
+                {Object.keys(statusColors).map((status) => (
+                  <button
+                    key={status}
+                    onClick={() => updateStatus(status as Status)}
+                    className={cn(
+                      'w-full px-4 py-2 text-sm text-left text-gray-300 hover:bg-gray-700 flex items-center space-x-2',
+                      getUserStatus(user.id) === status && 'bg-gray-700'
+                    )}
+                  >
+                    <div className={cn('h-2 w-2 rounded-full', statusColors[status as Status])} />
+                    <span className="capitalize">{status}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-white truncate">
+                {user.username}
+              </p>
+              <p className="text-xs text-gray-400 capitalize">
+                {getUserStatus(user.id)}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 } 
