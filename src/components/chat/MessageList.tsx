@@ -5,45 +5,8 @@ import { UserPresenceIndicator } from '../shared/UserPresenceIndicator'
 import { format } from 'date-fns'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { FileAttachment } from './FileAttachment'
-
-interface BaseMessage {
-  id: string
-  content: string
-  created_at: string
-  file?: {
-    id: string
-    url: string
-    name: string
-    type: string
-    size: number
-  }
-}
-
-interface ChannelMessage extends BaseMessage {
-  type: 'channel'
-  sender: {
-    username: string
-    status: string
-    profile_picture?: string
-  }
-  reactions: Array<{
-    emoji: string
-    user_id: string
-  }>
-}
-
-interface DirectMessage extends BaseMessage {
-  type: 'dm'
-  sender_id: string
-  receiver_id: string
-  sender: {
-    username: string
-    status: string
-    profile_picture?: string
-  }
-}
-
-type Message = ChannelMessage | DirectMessage
+import { Message, ChannelMessage } from '@/types/messages'
+import { cn } from '@/lib/utils'
 
 interface MessageListProps {
   messages: Message[]
@@ -72,7 +35,10 @@ export function MessageList({ messages, onReaction, onThreadClick, type }: Messa
   return (
     <div 
       ref={containerRef}
-      className="h-full overflow-y-auto"
+      className={cn(
+        "h-full overflow-y-auto",
+        type === 'dm' && "flex-1"
+      )}
     >
       <div className="flex flex-col justify-end min-h-full p-4">
         <div className="space-y-4">
@@ -116,19 +82,24 @@ export function MessageList({ messages, onReaction, onThreadClick, type }: Messa
                     </div>
                   )}
                   
-                  {type === 'channel' && (message as ChannelMessage).reactions && (
-                    <div className="mt-2 flex items-center space-x-2">
+                  {type === 'channel' && message.type === 'channel' && !message.thread_id && (
+                    <div className="mt-2 flex items-center space-x-4">
                       {onThreadClick && (
                         <button
                           onClick={() => onThreadClick(message.id)}
-                          className="text-xs text-gray-400 hover:text-white"
+                          className="text-xs text-gray-400 hover:text-white flex items-center space-x-1"
                         >
-                          Reply in thread
+                          <span>Reply in thread</span>
+                          {message.reply_count > 0 && (
+                            <span className="text-xs text-gray-500">
+                              ({message.reply_count})
+                            </span>
+                          )}
                         </button>
                       )}
                       {onReaction && (
                         <div className="flex space-x-1">
-                          {(message as ChannelMessage).reactions.map((reaction, idx) => (
+                          {message.reactions.map((reaction, idx) => (
                             <button
                               key={`${reaction.emoji}-${idx}`}
                               onClick={() => onReaction(message.id, reaction.emoji)}

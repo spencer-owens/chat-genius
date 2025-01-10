@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 import { use } from 'react'
 import { Layout } from '@/components/layout/Layout'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { ChannelMessage } from '@/types/messages'
 
 interface PageProps {
   params: Promise<{ channelId: string }>
@@ -21,7 +22,7 @@ interface PageProps {
 
 export default function ChannelPage({ params }: PageProps) {
   const { channelId } = use(params)
-  const [selectedThread, setSelectedThread] = useState<any>(null)
+  const [selectedThread, setSelectedThread] = useState<ChannelMessage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const { messages, loading: messagesLoading, sendMessage } = useMessages(channelId)
   const { channels, loading: channelsLoading } = useChannels()
@@ -92,45 +93,50 @@ export default function ChannelPage({ params }: PageProps) {
           </div>
         )}
 
-        {/* Scrollable Message Area */}
-        <div className="flex-1 min-h-0">
-          {messagesLoading ? (
-            <div className="h-full flex items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        {/* Main Content Area */}
+        <div className="flex flex-1 min-h-0">
+          {/* Messages Area */}
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="flex-1 overflow-y-auto">
+              {messagesLoading ? (
+                <div className="h-full flex items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <MessageList
+                  messages={messages as ChannelMessage[]}
+                  type="channel"
+                  onReaction={(messageId, emoji) => {
+                    // Handle reaction
+                  }}
+                  onThreadClick={(messageId) => {
+                    const message = (messages as ChannelMessage[]).find(m => m.id === messageId)
+                    if (message) {
+                      setSelectedThread(message)
+                    }
+                  }}
+                />
+              )}
             </div>
-          ) : (
-            <MessageList
-              messages={messages}
-              type="channel"
-              onReaction={(messageId, emoji) => {
-                // Handle reaction
-              }}
-              onThreadClick={(messageId) => {
-                const message = messages.find(m => m.id === messageId)
-                setSelectedThread(message)
-              }}
+
+            {/* Fixed Input Area */}
+            <div className="flex-none p-4 border-t border-gray-700 bg-gray-900">
+              <MessageInput
+                onSend={handleSendMessage}
+                channelId={channelId}
+                placeholder={`Message #${channel.name}`}
+              />
+            </div>
+          </div>
+
+          {/* Thread Panel */}
+          {selectedThread && (
+            <MessageThread
+              parentMessage={selectedThread}
+              onClose={() => setSelectedThread(null)}
             />
           )}
         </div>
-
-        {/* Fixed Input Area */}
-        <div className="flex-none p-4 border-t border-gray-700">
-          <MessageInput
-            onSend={handleSendMessage}
-            channelId={channelId}
-            placeholder={`Message #${channel.name}`}
-          />
-        </div>
-
-        {/* Thread Overlay */}
-        {selectedThread && (
-          <MessageThread
-            parentMessage={selectedThread}
-            replies={[]}
-            onClose={() => setSelectedThread(null)}
-            onReply={(content) => console.log('Thread reply:', content)}
-          />
-        )}
       </div>
     </Layout>
   )

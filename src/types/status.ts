@@ -1,0 +1,1 @@
+export type Status = 'online' | 'offline' | 'away' | 'busy' 

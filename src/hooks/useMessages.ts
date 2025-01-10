@@ -71,6 +71,7 @@ export function useMessages(channelId: string | null) {
             )
           `)
           .eq('channel_id', channelId)
+          .is('thread_id', null)
           .order('created_at', { ascending: true })
 
         if (error) throw error
@@ -112,6 +113,10 @@ export function useMessages(channelId: string | null) {
           filter: `channel_id=eq.${channelId}`
         },
         async (payload) => {
+          if (payload.new.thread_id) {
+            return
+          }
+
           logWithTime('Received new message payload', payload)
 
           // Fetch the complete message to ensure we have all related data
