@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from './useCurrentUser'
 
@@ -33,7 +33,7 @@ export function useMessages(channelId: string | null) {
   }
 
   useEffect(() => {
-    if (!channelId) {
+    if (!channelId || !currentUser) {
       setMessages([])
       setLoading(false)
       return
@@ -79,8 +79,8 @@ export function useMessages(channelId: string | null) {
 
     fetchMessages()
 
-    // Set up real-time subscription
-    const channelName = `messages_${channelId}`
+    // Set up real-time subscription with improved channel naming
+    const channelName = `channel:${channelId}`
     logWithTime('Creating channel subscription', { channelName })
 
     const channel = supabase
@@ -119,12 +119,51 @@ export function useMessages(channelId: string | null) {
 
           logWithTime('Adding new message to state', data)
           
-          const newMessage: Message = {
-            ...data,
-            type: 'channel'
+          setMessages(prev => {
+            // Don't add if we already have this message
+            const exists = prev.some(msg => msg.id === data.id)
+            if (exists) return prev
+            return [...prev, { ...data, type: 'channel' }]
+          })
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `channel_id=eq.${channelId}`
+        },
+        async (payload) => {
+          logWithTime('Received message update payload', payload)
+
+          // Fetch updated message with all related data
+          const { data, error } = await supabase
+            .from('messages')
+            .select(`
+              *,
+              sender:users!sender_id(
+                id,
+                username,
+                status,
+                profile_picture
+              ),
+              reactions(*)
+            `)
+            .eq('id', payload.new.id)
+            .single()
+
+          if (error) {
+            console.error('Error fetching updated message details:', error)
+            return
           }
 
-          setMessages(prev => [...prev, newMessage])
+          setMessages(prev => 
+            prev.map(msg => 
+              msg.id === data.id ? { ...data, type: 'channel' } : msg
+            )
+          )
         }
       )
       .subscribe((status, err) => {
@@ -135,9 +174,9 @@ export function useMessages(channelId: string | null) {
       logWithTime('Cleaning up subscription', { channelName })
       supabase.removeChannel(channel)
     }
-  }, [channelId])
+  }, [channelId, currentUser])
 
-  const sendMessage = async (content: string) => {
+  const sendMessage = useCallback(async (content: string) => {
     if (!currentUser || !channelId) {
       throw new Error('Must be logged in to send messages')
     }
@@ -152,38 +191,14 @@ export function useMessages(channelId: string | null) {
 
     logWithTime('Sending message:', newMessage)
 
-    // Add optimistic message
-    const optimisticMessage: Message = {
-      ...newMessage,
-      id: `temp-${Date.now()}`,
-      type: 'channel',
-      sender: {
-        id: currentUser.id,
-        username: currentUser.username,
-        status: 'online',
-        profile_picture: currentUser.profile_picture
-      },
-      reactions: []
+    const { error: sendError } = await supabase
+      .from('messages')
+      .insert([newMessage])
+
+    if (sendError) {
+      throw sendError
     }
-
-    setMessages(prev => [...prev, optimisticMessage])
-
-    try {
-      const { error: sendError } = await supabase
-        .from('messages')
-        .insert([newMessage])
-
-      if (sendError) {
-        // Remove optimistic message on error
-        setMessages(prev => prev.filter(msg => msg.id !== optimisticMessage.id))
-        throw sendError
-      }
-    } catch (error) {
-      // Remove optimistic message on error
-      setMessages(prev => prev.filter(msg => msg.id !== optimisticMessage.id))
-      throw error
-    }
-  }
+  }, [currentUser, channelId])
 
   return {
     messages,

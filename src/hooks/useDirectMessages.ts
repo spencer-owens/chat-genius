@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from './useCurrentUser'
 
@@ -9,6 +9,7 @@ interface DirectMessage {
   sender_id: string
   receiver_id: string
   sender: {
+    id: string
     username: string
     status: string
     profile_picture?: string
@@ -77,8 +78,8 @@ export function useDirectMessages(otherUserId: string | null) {
 
     fetchMessages()
 
-    // Simpler subscription pattern
-    const channelName = `direct_messages_${[currentUser.id, otherUserId].sort().join('_')}`
+    // Subscribe to new messages with improved channel naming
+    const channelName = `dm:${[currentUser.id, otherUserId].sort().join('_')}`
     logWithTime('Creating channel', { channelName })
 
     const channel = supabase
@@ -88,11 +89,28 @@ export function useDirectMessages(otherUserId: string | null) {
         {
           event: 'INSERT',
           schema: 'public',
-          table: 'direct_messages',
-          filter: `or(and(sender_id.eq.${currentUser.id},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${currentUser.id}))`
+          table: 'direct_messages'
         },
         async (payload) => {
-          logWithTime('Received new message payload', payload)
+          logWithTime('DEBUG: Received any DM insert', payload)
+          
+          // Only process messages that are part of this conversation
+          if (
+            !(
+              (payload.new.sender_id === currentUser.id && payload.new.receiver_id === otherUserId) ||
+              (payload.new.sender_id === otherUserId && payload.new.receiver_id === currentUser.id)
+            )
+          ) {
+            logWithTime('DEBUG: Skipping DM - not part of this conversation', {
+              sender_id: payload.new.sender_id,
+              receiver_id: payload.new.receiver_id,
+              currentUser: currentUser.id,
+              otherUser: otherUserId
+            })
+            return
+          }
+
+          logWithTime('DEBUG: Processing DM for this conversation', payload.new)
 
           // Fetch the complete message to ensure we have all related data
           const { data, error } = await supabase
@@ -116,12 +134,12 @@ export function useDirectMessages(otherUserId: string | null) {
 
           logWithTime('Adding new message to state', data)
           
-          const newMessage: DirectMessage = {
-            ...data,
-            type: 'dm'
-          }
-
-          setMessages(prev => [...prev, newMessage])
+          setMessages(prev => {
+            // Don't add if we already have this message
+            const exists = prev.some(msg => msg.id === data.id)
+            if (exists) return prev
+            return [...prev, { ...data, type: 'dm' }]
+          })
         }
       )
       .subscribe((status, err) => {
@@ -134,7 +152,7 @@ export function useDirectMessages(otherUserId: string | null) {
     }
   }, [currentUser, otherUserId])
 
-  const sendMessage = async (content: string) => {
+  const sendMessage = useCallback(async (content: string) => {
     if (!currentUser || !otherUserId) {
       throw new Error('Must be logged in to send messages')
     }
@@ -149,41 +167,18 @@ export function useDirectMessages(otherUserId: string | null) {
 
     logWithTime('Sending message:', newMessage)
 
-    // Add optimistic message
-    const optimisticMessage: DirectMessage = {
-      ...newMessage,
-      id: `temp-${Date.now()}`,
-      type: 'dm',
-      sender: {
-        id: currentUser.id,
-        username: currentUser.username,
-        status: 'online',
-        profile_picture: currentUser.profile_picture
-      }
+    const { error: sendError } = await supabase
+      .from('direct_messages')
+      .insert([newMessage])
+
+    if (sendError) {
+      throw sendError
     }
+  }, [currentUser, otherUserId])
 
-    setMessages(prev => [...prev, optimisticMessage])
-
-    try {
-      const { error: sendError } = await supabase
-        .from('direct_messages')
-        .insert([newMessage])
-
-      if (sendError) {
-        // Remove optimistic message on error
-        setMessages(prev => prev.filter(msg => msg.id !== optimisticMessage.id))
-        throw sendError
-      }
-    } catch (error) {
-      // Remove optimistic message on error
-      setMessages(prev => prev.filter(msg => msg.id !== optimisticMessage.id))
-      throw error
-    }
-  }
-
-  return { 
-    messages, 
-    loading, 
+  return {
+    messages,
+    loading,
     error,
     sendMessage
   }
