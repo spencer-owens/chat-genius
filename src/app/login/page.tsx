@@ -4,7 +4,15 @@ import { Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { useAuth } from '@/contexts/AuthContext'
+
+const TEST_USERS = [
+  { email: 'john@example.com', username: 'john_doe' },
+  { email: 'jane@example.com', username: 'jane_smith' },
+  { email: 'bob@example.com', username: 'bob_wilson' },
+  { email: 'alice@example.com', username: 'alice_johnson' },
+  { email: 'sam@example.com', username: 'sam_brown' },
+]
 
 function LoginForm() {
   const [email, setEmail] = useState('')
@@ -14,29 +22,18 @@ function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const message = searchParams.get('message')
-  const supabase = createClient()
+  const { signIn } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
       setLoading(true)
       setError(null)
-      
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (error) {
-        setError(error.message)
-        return
-      }
-
+      await signIn(email, password)
       router.push('/')
       router.refresh()
-    } catch (error) {
-      console.error('Unexpected error:', error)
-      setError('An unexpected error occurred')
+    } catch (error: any) {
+      setError(error.message || 'Error signing in')
     } finally {
       setLoading(false)
     }
@@ -115,6 +112,27 @@ function LoginForm() {
             </Link>
           </div>
         </form>
+      </div>
+
+      {/* Test Users Panel */}
+      <div className="hidden lg:block fixed right-8 top-1/2 -translate-y-1/2 bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700">
+        <h3 className="text-lg font-semibold text-white mb-4">Test Users</h3>
+        <p className="text-gray-400 text-sm mb-4">All users have password: <code className="bg-gray-700 px-2 py-1 rounded">asdf</code></p>
+        <div className="space-y-2">
+          {TEST_USERS.map((user) => (
+            <div 
+              key={user.email} 
+              className="text-sm text-gray-300 hover:text-white cursor-pointer"
+              onClick={() => {
+                setEmail(user.email)
+                setPassword('asdf')
+              }}
+            >
+              <div className="font-medium">{user.username}</div>
+              <div className="text-gray-500">{user.email}</div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
