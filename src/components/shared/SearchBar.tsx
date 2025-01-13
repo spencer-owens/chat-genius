@@ -1,20 +1,36 @@
 import { Search } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 
 interface SearchBarProps {
   onSearch: (query: string) => void
   placeholder?: string
+  shouldNavigate?: boolean
+  initialValue?: string
 }
 
 export function SearchBar({ 
   onSearch, 
-  placeholder = 'Search...' 
+  placeholder = 'Search...', 
+  shouldNavigate = false,
+  initialValue = ''
 }: SearchBarProps) {
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initialValue)
+  const router = useRouter()
+
+  useEffect(() => {
+    if (initialValue !== query) {
+      setQuery(initialValue)
+    }
+  }, [initialValue])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    onSearch(query)
+    if (shouldNavigate) {
+      router.push(`/search?q=${encodeURIComponent(query)}`)
+    } else {
+      onSearch(query)
+    }
   }
 
   return (

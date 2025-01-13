@@ -18,13 +18,13 @@ import { useChannels } from '@/hooks/useChannels'
 import { useDirectMessages } from '@/hooks/useDirectMessages'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { SkeletonLoader } from '../shared/SkeletonLoader'
-import { useUnreadCounts } from '@/hooks/useUnreadCounts'
+import { useUnreadCountsContext } from '@/components/providers/UnreadCountsProvider'
 import { ChannelLink } from '../channels/ChannelLink'
 import { useDMUsers } from '@/hooks/useDMUsers'
-import { ReactNode } from 'react'
+import { ReactNode, useCallback } from 'react'
 import { useUserPresence } from '@/hooks/useUserPresence'
 
-type Status = 'online' | 'offline' | 'away' | 'busy'
+type Status = 'online' | 'offline' | 'away'
 
 interface User {
   id: string
@@ -36,8 +36,7 @@ interface User {
 const statusColors: Record<Status, string> = {
   online: 'bg-green-500',
   offline: 'bg-gray-500',
-  away: 'bg-yellow-500',
-  busy: 'bg-red-500'
+  away: 'bg-yellow-500'
 } as const
 
 interface Channel {
@@ -76,9 +75,27 @@ export function Sidebar() {
   const pathname = usePathname()
   const { channels, loading: channelsLoading } = useChannels()
   const { user } = useCurrentUser()
-  const { channelUnreadCounts, dmUnreadCounts, markAllAsRead } = useUnreadCounts()
+  const { channelUnreadCounts, dmUnreadCounts, markChannelAsRead, markDmAsRead } = useUnreadCountsContext()
   const { users: dmUsers, loading: dmUsersLoading } = useDMUsers()
   const { updateStatus, getUserStatus } = useUserPresence()
+
+  const markAllAsRead = useCallback(async () => {
+    if (!user) return
+
+    // Mark all channels as read
+    await Promise.all(
+      Object.keys(channelUnreadCounts)
+        .filter(channelId => channelUnreadCounts[channelId]?.count > 0)
+        .map(channelId => markChannelAsRead(channelId))
+    )
+
+    // Mark all DMs as read
+    await Promise.all(
+      Object.keys(dmUnreadCounts)
+        .filter(userId => dmUnreadCounts[userId]?.count > 0)
+        .map(userId => markDmAsRead(userId))
+    )
+  }, [user, channelUnreadCounts, dmUnreadCounts, markChannelAsRead, markDmAsRead])
 
   const handleSearch = (query: string) => {
     // Implement search functionality
@@ -114,7 +131,11 @@ export function Sidebar() {
       </div>
 
       <div className="px-4 mb-4">
-        <SearchBar onSearch={handleSearch} />
+        <SearchBar 
+          onSearch={handleSearch} 
+          shouldNavigate={true}
+          placeholder="Search messages and channels..."
+        />
       </div>
 
       <nav className="flex-1 space-y-1 px-2 py-4">
@@ -138,7 +159,7 @@ export function Sidebar() {
           )
         })}
 
-        {/* Public Channels section */}
+        {/* Channels section with public and private subsections */}
         <ExpandableNavItem
           title="Channels"
           linkHref="/channels"
@@ -150,50 +171,45 @@ export function Sidebar() {
               <SkeletonLoader className="h-6 w-full" />
               <SkeletonLoader className="h-6 w-3/4" />
             </div>
-          ) : publicChannels.length === 0 ? (
-            <div className="px-2 py-1 text-sm text-gray-400">
-              No channels available
-            </div>
           ) : (
-            <div className="space-y-1">
-              {publicChannels.map((channel) => (
-                <ChannelLink
-                  key={channel.id}
-                  channel={channel}
-                  isActive={isChannelActive(channel.id)}
-                  unreadCount={channelUnreadCounts[channel.id]?.count || 0}
-                />
-              ))}
-            </div>
-          )}
-        </ExpandableNavItem>
+            <div className="space-y-4">
+              {/* Public Channels */}
+              <div className="space-y-1">
+                <div className="px-2 py-1 text-xs font-medium text-gray-400">Public</div>
+                {publicChannels.length === 0 ? (
+                  <div className="px-2 py-1 text-sm text-gray-400">
+                    No channels available
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {publicChannels.map((channel) => (
+                      <ChannelLink
+                        key={channel.id}
+                        channel={channel}
+                        isActive={isChannelActive(channel.id)}
+                        unreadCount={channelUnreadCounts[channel.id]?.count || 0}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
 
-        {/* Private Channels section */}
-        <ExpandableNavItem
-          title="Private Channels"
-          linkHref="/channels/private"
-          isActive={pathname === '/channels/private'}
-          storageKey="sidebar-private-channels-expanded"
-        >
-          {channelsLoading ? (
-            <div className="space-y-2 px-2">
-              <SkeletonLoader className="h-6 w-full" />
-              <SkeletonLoader className="h-6 w-3/4" />
-            </div>
-          ) : userPrivateChannels.length === 0 ? (
-            <div className="px-2 py-1 text-sm text-gray-400">
-              No private channels
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {userPrivateChannels.map((channel) => (
-                <ChannelLink
-                  key={channel.id}
-                  channel={channel}
-                  isActive={isChannelActive(channel.id)}
-                  unreadCount={channelUnreadCounts[channel.id]?.count || 0}
-                />
-              ))}
+              {/* Private Channels - only show if user has access to any */}
+              {userPrivateChannels.length > 0 && (
+                <div className="space-y-1">
+                  <div className="px-2 py-1 text-xs font-medium text-gray-400">Private</div>
+                  <div className="space-y-1">
+                    {userPrivateChannels.map((channel) => (
+                      <ChannelLink
+                        key={channel.id}
+                        channel={channel}
+                        isActive={isChannelActive(channel.id)}
+                        unreadCount={channelUnreadCounts[channel.id]?.count || 0}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </ExpandableNavItem>

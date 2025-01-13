@@ -1,7 +1,14 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useCurrentUser } from './useCurrentUser'
+import { toast } from 'sonner'
 import { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
+
+const supabase = createClient()
+
+// Cache reactions for 30 seconds
+const reactionCache = new Map<string, { data: GroupedReaction[], timestamp: number }>()
+const CACHE_TTL = 30 * 1000 // 30 seconds
 
 export type ReactionEmoji = '👍' | '❤️' | '😄' | '🎉' | '🤔' | '👀'
 export type MessageType = 'channel' | 'dm'
@@ -31,15 +38,21 @@ interface GroupedReaction {
 }
 
 type ReactionPayload = RealtimePostgresChangesPayload<{
-  [key: string]: Reaction
+  [key: string]: any
 }>
 
 export function useReactions(messageId: string, messageType: MessageType) {
   const [reactions, setReactions] = useState<GroupedReaction[]>([])
   const [loading, setLoading] = useState(true)
   const { user } = useCurrentUser()
-  const supabase = createClient()
+  const mountedRef = useRef(true)
   const dbMessageType = useMemo(() => getDbMessageType(messageType), [messageType])
+  const fetchingRef = useRef(false)
+
+  // Skip fetching reactions for optimistic messages
+  const shouldFetchReactions = useMemo(() => {
+    return !messageId.startsWith('temp-')
+  }, [messageId])
 
   // Memoize the grouping function to avoid recreating it on every render
   const groupReactions = useCallback((reactions: Reaction[]): GroupedReaction[] => {
@@ -103,9 +116,24 @@ export function useReactions(messageId: string, messageType: MessageType) {
   }, [])
 
   const addReaction = useCallback(async (emoji: ReactionEmoji) => {
-    if (!user) return
+    if (!user || messageId.startsWith('temp-')) return
 
     try {
+      // Add optimistic reaction
+      const optimisticReaction: Reaction = {
+        id: `temp-${Date.now()}`,
+        message_id: messageId,
+        user_id: user.id,
+        emoji,
+        message_type: dbMessageType,
+        created_at: new Date().toISOString(),
+        user: {
+          username: user.username || ''
+        }
+      }
+
+      updateReactionsState(optimisticReaction, 'add')
+
       const { data: existingReaction } = await supabase
         .from('reactions')
         .select('id')
@@ -116,7 +144,8 @@ export function useReactions(messageId: string, messageType: MessageType) {
         .single()
 
       if (existingReaction) {
-        // User already reacted with this emoji
+        // Remove optimistic reaction if it already exists
+        updateReactionsState(optimisticReaction, 'remove')
         return
       }
 
@@ -129,18 +158,47 @@ export function useReactions(messageId: string, messageType: MessageType) {
           message_type: dbMessageType
         })
 
-      if (error) throw error
+      if (error) {
+        // Remove optimistic reaction on error
+        updateReactionsState(optimisticReaction, 'remove')
+        throw error
+      }
+
+      // Update cache
+      const cacheKey = `${messageId}:${dbMessageType}`
+      reactionCache.delete(cacheKey)
     } catch (error) {
       console.error('Error adding reaction:', error)
+      toast.error('Failed to add reaction. Please try again.')
     }
-  }, [user, messageId, dbMessageType])
+  }, [user, messageId, dbMessageType, updateReactionsState])
 
   useEffect(() => {
-    let mounted = true
+    if (!shouldFetchReactions) {
+      setLoading(false)
+      return
+    }
+
+    mountedRef.current = true
     const abortController = new AbortController()
 
     async function fetchReactions() {
+      // Prevent concurrent fetches for the same message
+      if (fetchingRef.current) return
+      fetchingRef.current = true
+
       try {
+        const cacheKey = `${messageId}:${dbMessageType}`
+        const now = Date.now()
+        const cached = reactionCache.get(cacheKey)
+
+        // Use cached data if available and fresh
+        if (cached && now - cached.timestamp < CACHE_TTL) {
+          setReactions(cached.data)
+          setLoading(false)
+          return
+        }
+
         const { data, error } = await supabase
           .from('reactions')
           .select(`
@@ -149,22 +207,53 @@ export function useReactions(messageId: string, messageType: MessageType) {
           `)
           .eq('message_id', messageId)
           .eq('message_type', dbMessageType)
+          .abortSignal(abortController.signal)
 
-        if (error) throw error
-        if (mounted) {
-          setReactions(groupReactions(data as Reaction[]))
+        if (error) {
+          if (error.code === 'PGRST116') {
+            // This is an abort error, ignore it
+            return
+          }
+          throw error
+        }
+
+        if (!data) {
+          setReactions([])
+          setLoading(false)
+          return
+        }
+
+        const groupedReactions = groupReactions(data as Reaction[])
+
+        // Update cache
+        reactionCache.set(cacheKey, {
+          data: groupedReactions,
+          timestamp: now
+        })
+
+        if (mountedRef.current) {
+          setReactions(groupedReactions)
           setLoading(false)
         }
-      } catch (error) {
+      } catch (error: any) {
+        if (error?.code === 'PGRST116' || error?.code === '20') {
+          // Ignore abort errors
+          return
+        }
         console.error('Error fetching reactions:', error)
-        if (mounted) setLoading(false)
+        if (mountedRef.current) {
+          setLoading(false)
+          setReactions([])
+        }
+      } finally {
+        fetchingRef.current = false
       }
     }
 
     fetchReactions()
 
     // Subscribe to reaction changes
-    const channel = supabase.channel(`reactions-${messageId}-${dbMessageType}`)
+    const channel = supabase.channel(`reactions-${messageId}`)
       .on(
         'postgres_changes',
         {
@@ -173,41 +262,33 @@ export function useReactions(messageId: string, messageType: MessageType) {
           table: 'reactions',
           filter: `message_id=eq.${messageId} AND message_type=eq.${dbMessageType}`
         },
-        async (payload: ReactionPayload) => {
-          if (!mounted) return
+        (payload: ReactionPayload) => {
+          if (!mountedRef.current) return
 
           if (payload.eventType === 'INSERT' || payload.eventType === 'DELETE') {
             const reaction = (payload.new || payload.old) as Reaction
             if (!reaction) return
 
-            const { data: userData } = await supabase
-              .from('users')
-              .select('username')
-              .eq('id', reaction.user_id)
-              .abortSignal(abortController.signal)
-              .single()
+            // Update cache
+            const cacheKey = `${messageId}:${dbMessageType}`
+            reactionCache.delete(cacheKey)
 
-            if (userData && mounted) {
-              const fullReaction: Reaction = {
-                ...reaction,
-                user: { username: userData.username }
-              }
-              updateReactionsState(
-                fullReaction,
-                payload.eventType === 'INSERT' ? 'add' : 'remove'
-              )
-            }
+            // Use the reaction data directly from the payload
+            updateReactionsState(
+              reaction,
+              payload.eventType === 'INSERT' ? 'add' : 'remove'
+            )
           }
         }
       )
       .subscribe()
 
     return () => {
-      mounted = false
+      mountedRef.current = false
       abortController.abort()
       supabase.removeChannel(channel)
     }
-  }, [messageId, dbMessageType, groupReactions, updateReactionsState])
+  }, [messageId, dbMessageType, groupReactions, updateReactionsState, shouldFetchReactions])
 
   return {
     reactions,

@@ -1,101 +1,147 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 
 type SearchResult = {
-  type: 'message' | 'channel' | 'file'
+  type: 'message'
   id: string
   content: string
   created_at: string
-  channel?: { id: string; name: string }
-  sender?: { username: string; profile_picture?: string }
+  channel: { id: string; name: string }
+  sender: { id: string; username: string; profile_picture: string | null }
+}
+
+type MessageResult = {
+  id: string
+  content: string
+  created_at: string
+  channel_id: string
+  sender_id: string
+  channels: {
+    id: string
+    name: string
+  }
+  users: {
+    id: string
+    username: string
+    profile_picture: string | null
+  }
 }
 
 export function useSearch() {
   const [results, setResults] = useState<SearchResult[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const currentQueryRef = useRef<string>('')
 
-  const search = async (query: string) => {
-    if (!query.trim()) {
-      setResults([])
+  const executeSearch = async (query: string) => {
+    // Don't search if query hasn't changed
+    if (query === currentQueryRef.current) {
+      console.log('Skipping duplicate search for:', query)
       return
     }
 
-    setLoading(true)
+    console.log('Executing search for:', query)
+    currentQueryRef.current = query
+
     try {
-      // Search messages
       const { data: messages, error: messagesError } = await supabase
         .from('messages')
         .select(`
           id,
           content,
           created_at,
-          channel:channels(id, name),
-          sender:users!sender_id(username, profile_picture)
+          channel_id,
+          sender_id,
+          channels:channel_id(
+            id,
+            name
+          ),
+          users:sender_id(
+            id,
+            username,
+            profile_picture
+          )
         `)
         .ilike('content', `%${query}%`)
-        .limit(10)
+        .limit(20) as { data: MessageResult[] | null, error: Error | null }
 
-      if (messagesError) throw messagesError
+      if (messagesError) {
+        console.error('Search query error:', messagesError)
+        throw messagesError
+      }
 
-      // Search channels
-      const { data: channels, error: channelsError } = await supabase
-        .from('channels')
-        .select('id, name, description, created_at')
-        .or(`name.ilike.%${query}%,description.ilike.%${query}%`)
-        .limit(5)
+      console.log('Search results:', messages)
 
-      if (channelsError) throw channelsError
+      // Format results
+      const formattedResults: SearchResult[] = messages?.map(msg => ({
+        type: 'message' as const,
+        id: msg.id,
+        content: msg.content,
+        created_at: msg.created_at,
+        channel: {
+          id: msg.channels.id,
+          name: msg.channels.name
+        },
+        sender: {
+          id: msg.users.id,
+          username: msg.users.username,
+          profile_picture: msg.users.profile_picture
+        }
+      })) || []
 
-      // Search files
-      const { data: files, error: filesError } = await supabase
-        .from('files')
-        .select(`
-          id,
-          name,
-          created_at,
-          channel:channels(id, name),
-          uploader:uploaded_by(username, profile_picture)
-        `)
-        .ilike('name', `%${query}%`)
-        .limit(5)
+      const sortedResults = formattedResults.sort((a, b) => 
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )
 
-      if (filesError) throw filesError
-
-      // Combine and format results
-      const formattedResults: SearchResult[] = [
-        ...(messages?.map(msg => ({
-          type: 'message' as const,
-          id: msg.id,
-          content: msg.content,
-          created_at: msg.created_at,
-          channel: msg.channel,
-          sender: msg.sender
-        })) || []),
-        ...(channels?.map(ch => ({
-          type: 'channel' as const,
-          id: ch.id,
-          content: ch.description || ch.name,
-          created_at: ch.created_at,
-          channel: { id: ch.id, name: ch.name }
-        })) || []),
-        ...(files?.map(file => ({
-          type: 'file' as const,
-          id: file.id,
-          content: file.name,
-          created_at: file.created_at,
-          channel: file.channel,
-          sender: file.uploader
-        })) || [])
-      ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-
-      setResults(formattedResults)
+      console.log('Formatted results:', sortedResults)
+      setResults(sortedResults)
     } catch (e) {
+      console.error('Search error:', e)
       setError(e as Error)
     } finally {
       setLoading(false)
     }
   }
 
-  return { results, loading, error, search }
+  const search = (query: string) => {
+    console.log('Search requested for:', query)
+    
+    if (!query.trim()) {
+      console.log('Empty query, clearing results')
+      setResults([])
+      return
+    }
+
+    // Clear any pending search
+    if (searchTimeoutRef.current) {
+      console.log('Clearing previous search timeout')
+      clearTimeout(searchTimeoutRef.current)
+    }
+
+    setLoading(true)
+    setError(null)
+    
+    // Debounce the search
+    searchTimeoutRef.current = setTimeout(() => {
+      console.log('Debounce timer expired, executing search')
+      executeSearch(query)
+    }, 300)
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  return { 
+    results, 
+    loading, 
+    error, 
+    search
+  }
 } 

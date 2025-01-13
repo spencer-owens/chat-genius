@@ -1,64 +1,62 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useCurrentUser } from './useCurrentUser'
+import { User } from '@supabase/supabase-js'
+import { toast } from 'sonner'
+import { usePathname } from 'next/navigation'
+
+const supabase = createClient()
+
+// Helper function to log with timestamp
+const logWithTime = (message: string, data: unknown = ''): void => {
+  console.log(`[${new Date().toISOString()}] ${message}`, data)
+}
 
 interface UnreadCount {
   count: number
   lastReadAt: string | null
 }
 
-interface DirectMessageSender {
+interface Message {
+  id: string
+  content: string
+  created_at: string
+  channel_id: string
   sender_id: string
 }
 
-export function useUnreadCounts() {
+interface DirectMessage {
+  id: string
+  content: string
+  created_at: string
+  sender_id: string
+  receiver_id: string
+}
+
+export function useUnreadCounts(user: User | null) {
+  const [loading, setLoading] = useState(false)
   const [channelUnreadCounts, setChannelUnreadCounts] = useState<Record<string, UnreadCount>>({})
   const [dmUnreadCounts, setDmUnreadCounts] = useState<Record<string, UnreadCount>>({})
-  const [loading, setLoading] = useState(true)
-  const { user } = useCurrentUser()
-  const supabase = createClient()
   const lastReadTimestamps = useRef<Record<string, string>>({})
+  const subscriptionsRef = useRef<{ channels?: any; dms?: any }>({})
+  const pathname = usePathname()
+  const initialLoadDone = useRef(false)
 
-  // Debug function
-  const logWithTime = (message: string, data?: any) => {
-    console.log(`[${new Date().toISOString()}] [UnreadCounts] ${message}`, data || '')
-  }
-
-  // Function to fetch unread counts for a specific channel
-  const fetchChannelUnreadCount = useCallback(async (channelId: string) => {
+  // Helper functions to fetch unread counts
+  const fetchChannelUnreadCount = useCallback(async (channelId: string): Promise<number> => {
     if (!user) return 0
 
     try {
       const lastReadAt = lastReadTimestamps.current[`channel:${channelId}`] || '1970-01-01'
 
-      // First, get the latest last_read timestamp from the database
-      const { data: lastRead } = await supabase
-        .from('last_read')
-        .select('last_read_at')
-        .eq('user_id', user.id)
-        .eq('channel_id', channelId)
-        .single()
-
-      // Use the most recent last_read_at between our ref and the database
-      const effectiveLastReadAt = lastRead?.last_read_at 
-        ? new Date(Math.max(new Date(lastRead.last_read_at).getTime(), new Date(lastReadAt).getTime())).toISOString()
-        : lastReadAt
-
-      // Update our ref with the latest timestamp
-      lastReadTimestamps.current[`channel:${channelId}`] = effectiveLastReadAt
-
-      const { count, error: countError } = await supabase
+      // Get the count of messages after the last read timestamp
+      const { count, error } = await supabase
         .from('messages')
         .select('*', { count: 'exact', head: true })
         .eq('channel_id', channelId)
         .neq('sender_id', user.id)
-        .gt('created_at', effectiveLastReadAt)
+        .gt('created_at', lastReadAt)
 
-      if (countError) {
-        console.error(`Error counting messages for channel ${channelId}:`, countError)
-        return 0
-      }
-
+      if (error) throw error
       return count || 0
     } catch (error) {
       console.error('Error fetching channel unread count:', error)
@@ -66,41 +64,21 @@ export function useUnreadCounts() {
     }
   }, [user])
 
-  // Function to fetch unread counts for a specific DM conversation
-  const fetchDMUnreadCount = useCallback(async (otherUserId: string) => {
+  const fetchDMUnreadCount = useCallback(async (senderId: string): Promise<number> => {
     if (!user) return 0
 
     try {
-      const lastReadAt = lastReadTimestamps.current[`dm:${otherUserId}`] || '1970-01-01'
+      const lastReadAt = lastReadTimestamps.current[`dm:${senderId}`] || '1970-01-01'
 
-      // First, get the latest last_read timestamp from the database
-      const { data: lastRead } = await supabase
-        .from('dm_last_read')
-        .select('last_read_at')
-        .eq('user_id', user.id)
-        .eq('other_user_id', otherUserId)
-        .single()
-
-      // Use the most recent last_read_at between our ref and the database
-      const effectiveLastReadAt = lastRead?.last_read_at 
-        ? new Date(Math.max(new Date(lastRead.last_read_at).getTime(), new Date(lastReadAt).getTime())).toISOString()
-        : lastReadAt
-
-      // Update our ref with the latest timestamp
-      lastReadTimestamps.current[`dm:${otherUserId}`] = effectiveLastReadAt
-
-      const { count, error: countError } = await supabase
+      // Get the count of messages after the last read timestamp
+      const { count, error } = await supabase
         .from('direct_messages')
         .select('*', { count: 'exact', head: true })
-        .eq('sender_id', otherUserId)
+        .eq('sender_id', senderId)
         .eq('receiver_id', user.id)
-        .gt('created_at', effectiveLastReadAt)
+        .gt('created_at', lastReadAt)
 
-      if (countError) {
-        console.error(`Error counting DMs from user ${otherUserId}:`, countError)
-        return 0
-      }
-
+      if (error) throw error
       return count || 0
     } catch (error) {
       console.error('Error fetching DM unread count:', error)
@@ -108,204 +86,13 @@ export function useUnreadCounts() {
     }
   }, [user])
 
-  useEffect(() => {
-    if (!user) {
-      setChannelUnreadCounts({})
-      setDmUnreadCounts({})
-      setLoading(false)
-      return
-    }
-
-    async function fetchAllUnreadCounts() {
-      try {
-        logWithTime('Fetching all unread counts')
-        
-        // Get last read timestamps for all channels
-        const { data: channelLastRead, error: channelLastReadError } = await supabase
-          .from('last_read')
-          .select('channel_id, last_read_at')
-          .eq('user_id', user.id)
-
-        if (channelLastReadError) throw channelLastReadError
-
-        // Update lastReadTimestamps ref for channels
-        channelLastRead?.forEach(({ channel_id, last_read_at }) => {
-          lastReadTimestamps.current[`channel:${channel_id}`] = last_read_at
-        })
-
-        // Get last read timestamps for all DMs
-        const { data: dmLastRead, error: dmLastReadError } = await supabase
-          .from('dm_last_read')
-          .select('other_user_id, last_read_at')
-          .eq('user_id', user.id)
-
-        if (dmLastReadError) throw dmLastReadError
-
-        // Update lastReadTimestamps ref for DMs
-        dmLastRead?.forEach(({ other_user_id, last_read_at }) => {
-          lastReadTimestamps.current[`dm:${other_user_id}`] = last_read_at
-        })
-
-        // Get all channels
-        const { data: channels } = await supabase
-          .from('channels')
-          .select('id')
-
-        // Get all DM senders
-        const { data: senders } = await supabase
-          .from('direct_messages')
-          .select('sender_id')
-          .eq('receiver_id', user.id)
-          .neq('sender_id', user.id)
-          .then(result => {
-            const uniqueSenders = new Set(result.data?.map(dm => dm.sender_id) || [])
-            return { data: Array.from(uniqueSenders).map(id => ({ sender_id: id })) }
-          })
-
-        // Fetch unread counts for all channels
-        const channelCounts: Record<string, UnreadCount> = {}
-        await Promise.all((channels || []).map(async (channel) => {
-          const count = await fetchChannelUnreadCount(channel.id)
-          if (count > 0) {
-            logWithTime(`Found ${count} unread messages in channel ${channel.id}`)
-          }
-          channelCounts[channel.id] = {
-            count,
-            lastReadAt: lastReadTimestamps.current[`channel:${channel.id}`] || null
-          }
-        }))
-
-        // Fetch unread counts for all DMs
-        const dmCounts: Record<string, UnreadCount> = {}
-        await Promise.all((senders || []).map(async ({ sender_id }) => {
-          const count = await fetchDMUnreadCount(sender_id)
-          if (count > 0) {
-            logWithTime(`Found ${count} unread messages from user ${sender_id}`)
-          }
-          dmCounts[sender_id] = {
-            count,
-            lastReadAt: lastReadTimestamps.current[`dm:${sender_id}`] || null
-          }
-        }))
-
-        setChannelUnreadCounts(channelCounts)
-        setDmUnreadCounts(dmCounts)
-        logWithTime('All unread counts fetched')
-
-      } catch (error) {
-        console.error('Error fetching unread counts:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchAllUnreadCounts()
-
-    // Subscribe to new messages for unread count updates
-    const messageSubscription = supabase
-      .channel('unread_messages')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `sender_id=neq.${user.id}`
-        },
-        async (payload) => {
-          logWithTime('Received new channel message', payload.new)
-          const channelId = payload.new.channel_id
-
-          // Get the last read timestamp from our ref first
-          const lastReadAt = lastReadTimestamps.current[`channel:${channelId}`] || '1970-01-01'
-          
-          // Only fetch from database if we don't have a recent timestamp
-          if (!lastReadAt || new Date(lastReadAt).getTime() < Date.now() - 5000) {
-            const { data: lastRead } = await supabase
-              .from('last_read')
-              .select('last_read_at')
-              .eq('user_id', user.id)
-              .eq('channel_id', channelId)
-              .single()
-
-            if (lastRead?.last_read_at) {
-              lastReadTimestamps.current[`channel:${channelId}`] = lastRead.last_read_at
-            }
-          }
-
-          const count = await fetchChannelUnreadCount(channelId)
-          logWithTime(`Updated count for channel ${channelId}:`, count)
-          
-          setChannelUnreadCounts(prev => ({
-            ...prev,
-            [channelId]: {
-              count,
-              lastReadAt: lastReadTimestamps.current[`channel:${channelId}`] || null
-            }
-          }))
-        }
-      )
-      .subscribe()
-
-    // Subscribe to new DMs for unread count updates
-    const dmSubscription = supabase
-      .channel('unread_dms')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'direct_messages',
-          filter: `receiver_id=eq.${user.id}`
-        },
-        async (payload) => {
-          logWithTime('Received new DM', payload.new)
-          const senderId = payload.new.sender_id
-
-          // Get the last read timestamp from our ref first
-          const lastReadAt = lastReadTimestamps.current[`dm:${senderId}`] || '1970-01-01'
-          
-          // Only fetch from database if we don't have a recent timestamp
-          if (!lastReadAt || new Date(lastReadAt).getTime() < Date.now() - 5000) {
-            const { data: lastRead } = await supabase
-              .from('dm_last_read')
-              .select('last_read_at')
-              .eq('user_id', user.id)
-              .eq('other_user_id', senderId)
-              .single()
-
-            if (lastRead?.last_read_at) {
-              lastReadTimestamps.current[`dm:${senderId}`] = lastRead.last_read_at
-            }
-          }
-
-          const count = await fetchDMUnreadCount(senderId)
-          logWithTime(`Updated count for DM ${senderId}:`, count)
-          
-          setDmUnreadCounts(prev => ({
-            ...prev,
-            [senderId]: {
-              count,
-              lastReadAt: lastReadTimestamps.current[`dm:${senderId}`] || null
-            }
-          }))
-        }
-      )
-      .subscribe()
-
-    return () => {
-      messageSubscription.unsubscribe()
-      dmSubscription.unsubscribe()
-    }
-  }, [user, fetchChannelUnreadCount, fetchDMUnreadCount])
-
   const markChannelAsRead = useCallback(async (channelId: string) => {
-    if (!user) return
+    if (!user?.id) return
 
     try {
       const now = new Date().toISOString()
       
-      // Update the last read timestamp in our ref first
+      // Update the last read timestamp in our ref first for immediate feedback
       lastReadTimestamps.current[`channel:${channelId}`] = now
 
       // Update the UI immediately
@@ -327,7 +114,8 @@ export function useUnreadCounts() {
         })
 
       if (error) {
-        // If the database update fails, revert the UI
+        console.error('Error marking channel as read:', error)
+        // If the database update fails, revert the UI and ref
         const count = await fetchChannelUnreadCount(channelId)
         setChannelUnreadCounts(prev => ({
           ...prev,
@@ -338,20 +126,19 @@ export function useUnreadCounts() {
         }))
         throw error
       }
-
-      logWithTime(`Marked channel ${channelId} as read`)
     } catch (error) {
       console.error('Error marking channel as read:', error)
+      toast.error('Failed to mark channel as read')
     }
   }, [user, fetchChannelUnreadCount])
 
   const markDmAsRead = useCallback(async (otherUserId: string) => {
-    if (!user) return
+    if (!user?.id) return
 
     try {
       const now = new Date().toISOString()
       
-      // Update the last read timestamp in our ref first
+      // Update the last read timestamp in our ref first for immediate feedback
       lastReadTimestamps.current[`dm:${otherUserId}`] = now
 
       // Update the UI immediately
@@ -373,7 +160,8 @@ export function useUnreadCounts() {
         })
 
       if (error) {
-        // If the database update fails, revert the UI
+        console.error('Error marking DM as read:', error)
+        // If the database update fails, revert the UI and ref
         const count = await fetchDMUnreadCount(otherUserId)
         setDmUnreadCounts(prev => ({
           ...prev,
@@ -384,134 +172,226 @@ export function useUnreadCounts() {
         }))
         throw error
       }
-
-      logWithTime(`Marked DMs from user ${otherUserId} as read`)
     } catch (error) {
       console.error('Error marking DM as read:', error)
+      toast.error('Failed to mark messages as read')
     }
   }, [user, fetchDMUnreadCount])
 
-  const markAllAsRead = useCallback(async () => {
-    if (!user) return
+  // Cleanup function for subscriptions
+  const cleanupSubscriptions = useCallback(() => {
+    if (subscriptionsRef.current.channels) {
+      subscriptionsRef.current.channels.unsubscribe()
+      subscriptionsRef.current.channels = null
+    }
+    if (subscriptionsRef.current.dms) {
+      subscriptionsRef.current.dms.unsubscribe()
+      subscriptionsRef.current.dms = null
+    }
+  }, [])
 
-    try {
-      const now = new Date().toISOString()
+  // Setup subscriptions
+  const setupSubscriptions = useCallback(() => {
+    if (!user?.id || subscriptionsRef.current.channels || subscriptionsRef.current.dms) return
 
-      // Get all channels and DM senders
-      const { data: channels } = await supabase
-        .from('channels')
-        .select('id')
+    // Subscribe to new messages in channels
+    subscriptionsRef.current.channels = supabase
+      .channel('unread_counts_channels')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `sender_id=neq.${user.id}`
+        },
+        async (payload: { new: Message }) => {
+          if (!payload.new.channel_id || !user?.id) return
+          const channelId = payload.new.channel_id
+          
+          const isViewingChannel = pathname === `/channels/${channelId}`
+          if (isViewingChannel) {
+            await markChannelAsRead(channelId)
+          } else {
+            // Simple state update for unread count
+            setChannelUnreadCounts(prev => ({
+              ...prev,
+              [channelId]: {
+                count: (prev[channelId]?.count || 0) + 1,
+                lastReadAt: prev[channelId]?.lastReadAt || null
+              }
+            }))
+          }
+        }
+      )
+      .subscribe()
 
-      const { data: senders } = await supabase
+    // Subscribe to new DMs
+    subscriptionsRef.current.dms = supabase
+      .channel('unread_counts_dms')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'direct_messages',
+          filter: `receiver_id=eq.${user.id}`
+        },
+        async (payload: { new: DirectMessage }) => {
+          if (!user?.id) return
+          const senderId = payload.new.sender_id
+          
+          const isViewingDM = pathname === `/dm/${senderId}`
+          if (isViewingDM) {
+            await markDmAsRead(senderId)
+          } else {
+            // Simple state update for unread count
+            setDmUnreadCounts(prev => ({
+              ...prev,
+              [senderId]: {
+                count: (prev[senderId]?.count || 0) + 1,
+                lastReadAt: prev[senderId]?.lastReadAt || null
+              }
+            }))
+          }
+        }
+      )
+      .subscribe()
+  }, [user, pathname, markChannelAsRead, markDmAsRead])
+
+  // Effect for initial data load and subscription setup
+  useEffect(() => {
+    if (!user?.id) {
+      setChannelUnreadCounts({})
+      setDmUnreadCounts({})
+      setLoading(false)
+      initialLoadDone.current = false
+      cleanupSubscriptions()
+      return
+    }
+
+    let mounted = true
+    setLoading(true)
+
+    // Initial data load
+    async function loadInitialData() {
+      try {
+        const currentChannelId = pathname?.match(/^\/channels\/(.+)$/)?.[1]
+        const currentDmId = pathname?.match(/^\/dm\/(.+)$/)?.[1]
+
+        // Fetch last read timestamps
+        const [channelLastRead, dmLastRead] = await Promise.all([
+          supabase
+            .from('last_read')
+            .select('channel_id, last_read_at')
+            .eq('user_id', user.id),
+          supabase
+            .from('dm_last_read')
+            .select('other_user_id, last_read_at')
+            .eq('user_id', user.id)
+        ])
+
+        if (!mounted) return
+
+        // Update timestamps
+        channelLastRead.data?.forEach(({ channel_id, last_read_at }) => {
+          lastReadTimestamps.current[`channel:${channel_id}`] = last_read_at
+        })
+
+        dmLastRead.data?.forEach(({ other_user_id, last_read_at }) => {
+          lastReadTimestamps.current[`dm:${other_user_id}`] = last_read_at
+        })
+
+        // Mark current page as read
+        if (currentChannelId) {
+          await markChannelAsRead(currentChannelId)
+        } else if (currentDmId) {
+          await markDmAsRead(currentDmId)
+        }
+
+        // Set initial counts
+        const [channels, dmSenders] = await Promise.all([
+          supabase.from('channels').select('id'),
+          supabase
         .from('direct_messages')
         .select('sender_id')
         .eq('receiver_id', user.id)
         .neq('sender_id', user.id)
-        .then(result => {
-          const uniqueSenders = new Set(result.data?.map(dm => dm.sender_id) || [])
-          return { data: Array.from(uniqueSenders).map(id => ({ sender_id: id })) }
-        })
+        ])
 
-      // Update all timestamps in our ref
-      channels?.forEach(channel => {
-        lastReadTimestamps.current[`channel:${channel.id}`] = now
-      })
-      senders?.forEach(({ sender_id }) => {
-        lastReadTimestamps.current[`dm:${sender_id}`] = now
-      })
+        if (!mounted) return
 
-      // Update UI immediately
-      setChannelUnreadCounts(prev => {
-        const reset: Record<string, UnreadCount> = {}
-        Object.keys(prev).forEach(channelId => {
-          reset[channelId] = { count: 0, lastReadAt: now }
-        })
-        return reset
-      })
-
-      setDmUnreadCounts(prev => {
-        const reset: Record<string, UnreadCount> = {}
-        Object.keys(prev).forEach(userId => {
-          reset[userId] = { count: 0, lastReadAt: now }
-        })
-        return reset
-      })
-
-      // Update database
-      const channelUpdates = (channels || []).map(channel => ({
-        user_id: user.id,
-        channel_id: channel.id,
-        last_read_at: now
-      }))
-
-      const dmUpdates = (senders || []).map(({ sender_id }) => ({
-        user_id: user.id,
-        other_user_id: sender_id,
-        last_read_at: now
-      }))
-
-      // Perform updates
-      if (channelUpdates.length > 0) {
-        const { error: channelError } = await supabase
-          .from('last_read')
-          .upsert(channelUpdates)
-
-        if (channelError) throw channelError
-      }
-
-      if (dmUpdates.length > 0) {
-        const { error: dmError } = await supabase
-          .from('dm_last_read')
-          .upsert(dmUpdates)
-
-        if (dmError) throw dmError
-      }
-
-      logWithTime('Marked all messages as read')
-    } catch (error) {
-      console.error('Error marking all as read:', error)
-      // If there's an error, refresh all counts
-      const { data: channels } = await supabase.from('channels').select('id')
-      const { data: senders } = await supabase
-        .from('direct_messages')
-        .select('sender_id')
-        .eq('receiver_id', user.id)
-        .neq('sender_id', user.id)
-        .then(result => {
-          const uniqueSenders = new Set(result.data?.map(dm => dm.sender_id) || [])
-          return { data: Array.from(uniqueSenders).map(id => ({ sender_id: id })) }
-        })
-
-      // Refresh channel counts
+        // Calculate initial counts
       const channelCounts: Record<string, UnreadCount> = {}
-      await Promise.all((channels || []).map(async (channel) => {
+        const dmCounts: Record<string, UnreadCount> = {}
+
+        await Promise.all([
+          ...channels.data!.map(async channel => {
+            if (channel.id === currentChannelId) {
+              channelCounts[channel.id] = { count: 0, lastReadAt: new Date().toISOString() }
+            } else {
         const count = await fetchChannelUnreadCount(channel.id)
         channelCounts[channel.id] = {
           count,
           lastReadAt: lastReadTimestamps.current[`channel:${channel.id}`] || null
         }
-      }))
-      setChannelUnreadCounts(channelCounts)
+            }
+          }),
+          ...[...new Set(dmSenders.data?.map(dm => dm.sender_id))].map(async senderId => {
+            if (senderId === currentDmId) {
+              dmCounts[senderId] = { count: 0, lastReadAt: new Date().toISOString() }
+            } else {
+              const count = await fetchDMUnreadCount(senderId)
+              dmCounts[senderId] = {
+                count,
+                lastReadAt: lastReadTimestamps.current[`dm:${senderId}`] || null
+              }
+            }
+          })
+        ])
 
-      // Refresh DM counts
-      const dmCounts: Record<string, UnreadCount> = {}
-      await Promise.all((senders || []).map(async ({ sender_id }) => {
-        const count = await fetchDMUnreadCount(sender_id)
-        dmCounts[sender_id] = {
-          count,
-          lastReadAt: lastReadTimestamps.current[`dm:${sender_id}`] || null
+        if (!mounted) return
+
+      setChannelUnreadCounts(channelCounts)
+        setDmUnreadCounts(dmCounts)
+        initialLoadDone.current = true
+      } catch (error) {
+        console.error('Error loading initial data:', error)
+      } finally {
+        if (mounted) {
+          setLoading(false)
         }
-      }))
-      setDmUnreadCounts(dmCounts)
+      }
     }
-  }, [user, fetchChannelUnreadCount, fetchDMUnreadCount])
+
+    loadInitialData()
+    setupSubscriptions()
+
+    return () => {
+      mounted = false
+      cleanupSubscriptions()
+    }
+  }, [user, pathname, cleanupSubscriptions, setupSubscriptions, markChannelAsRead, markDmAsRead])
+
+  // Effect to handle page changes
+  useEffect(() => {
+    if (!user?.id || !pathname || !initialLoadDone.current) return
+
+    const channelId = pathname.match(/^\/channels\/(.+)$/)?.[1]
+    const dmId = pathname.match(/^\/dm\/(.+)$/)?.[1]
+
+    if (channelId) {
+      markChannelAsRead(channelId)
+    } else if (dmId) {
+      markDmAsRead(dmId)
+    }
+  }, [pathname, user, markChannelAsRead, markDmAsRead])
 
   return {
+    loading,
     channelUnreadCounts,
     dmUnreadCounts,
-    loading,
     markChannelAsRead,
-    markDmAsRead,
-    markAllAsRead
+    markDmAsRead
   }
 } 
