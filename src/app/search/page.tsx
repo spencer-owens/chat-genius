@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Layout } from '@/components/layout/Layout'
 import { SearchBar } from '@/components/shared/SearchBar'
@@ -10,7 +10,14 @@ import { Hash, FileText, MessageSquare, User, ChevronLeft, ChevronRight } from '
 
 const RESULTS_PER_PAGE = 10
 
-export default function SearchPage() {
+const ResultIcon = {
+  message: MessageSquare,
+  channel: Hash,
+  file: FileText,
+  dm: User
+}
+
+function SearchContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { results, loading, search } = useSearch()
@@ -61,13 +68,6 @@ export default function SearchPage() {
         window.open(result.url, '_blank')
         break
     }
-  }
-
-  const ResultIcon = {
-    message: MessageSquare,
-    channel: Hash,
-    file: FileText,
-    dm: User
   }
 
   return (
@@ -172,5 +172,13 @@ export default function SearchPage() {
         )}
       </div>
     </Layout>
+  )
+}
+
+export default function SearchPage() {
+  return (
+    <Suspense fallback={<Layout><div className="p-6">Loading...</div></Layout>}>
+      <SearchContent />
+    </Suspense>
   )
 } 
