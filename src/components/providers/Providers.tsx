@@ -1,11 +1,19 @@
 'use client'
 
 import { ReactNode } from 'react'
+import { UnreadCountsProvider } from './UnreadCountsProvider'
+import { AIProvider } from '@/contexts/AIContext'
 
-export function Providers({ children }: { children: ReactNode }) {
+interface ProvidersProps {
+  children: ReactNode
+}
+
+export function Providers({ children }: ProvidersProps) {
   return (
-    <>
-      {children}
-    </>
+    <UnreadCountsProvider>
+      <AIProvider>
+        {children}
+      </AIProvider>
+    </UnreadCountsProvider>
   )
 } 

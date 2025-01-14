@@ -1,0 +1,19 @@
+# FastAPI and server
+fastapi==0.109.0
+uvicorn==0.27.0
+
+# RAG Dependencies
+langchain>=0.2.15
+langchain-community>=0.2.15
+langchain-core>=0.2.37
+langchain-openai>=0.1.23
+pinecone-client>=2.2.4
+
+# LangSmith
+langsmith>=0.1.0
+
+# Utilities
+python-dotenv==1.0.1
+pydantic==2.8.2
+pydantic-settings==2.2.1
+cachetools==5.3.2
