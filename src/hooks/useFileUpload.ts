@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { useCurrentUser } from './useCurrentUser'
+import { supabase } from '@/lib/supabase/client'
+import { useAuth } from '@/contexts/AuthContext'
 
 // 5MB for images, 10MB for documents
 const MAX_FILE_SIZES = {
@@ -31,8 +31,7 @@ interface UploadOptions {
 
 export function useFileUpload() {
   const [uploading, setUploading] = useState(false)
-  const { user } = useCurrentUser()
-  const supabase = createClient()
+  const { user } = useAuth()
 
   const validateFile = (file: File) => {
     const fileType = ALLOWED_FILE_TYPES[file.type as keyof typeof ALLOWED_FILE_TYPES]

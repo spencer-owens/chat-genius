@@ -112,25 +112,20 @@ function LoginForm() {
             </Link>
           </div>
         </form>
-      </div>
 
-      {/* Test Users Panel */}
-      <div className="hidden lg:block fixed right-8 top-1/2 -translate-y-1/2 bg-gray-800 p-6 rounded-lg shadow-xl border border-gray-700">
-        <h3 className="text-lg font-semibold text-white mb-4">Test Users</h3>
-        <p className="text-gray-400 text-sm mb-4">All users have password: <code className="bg-gray-700 px-2 py-1 rounded">asdf</code></p>
-        <div className="space-y-2">
-          {TEST_USERS.map((user) => (
-            <div 
-              key={user.email} 
-              className="text-sm text-gray-300 hover:text-white cursor-pointer"
+        {/* Test User Buttons */}
+        <div className="flex gap-2 justify-center">
+          {TEST_USERS.map((user, index) => (
+            <button
+              key={user.email}
               onClick={() => {
                 setEmail(user.email)
                 setPassword('asdf')
               }}
+              className="px-4 py-2 bg-gray-800 rounded border border-gray-700 hover:bg-gray-700 transition-colors text-sm text-white"
             >
-              <div className="font-medium">{user.username}</div>
-              <div className="text-gray-500">{user.email}</div>
-            </div>
+              Test user {index + 1}
+            </button>
           ))}
         </div>
       </div>

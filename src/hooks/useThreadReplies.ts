@@ -1,14 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { useCurrentUser } from './useCurrentUser'
+import { supabase } from '@/lib/supabase/client'
+import { useAuth } from '@/contexts/AuthContext'
 import { ChannelMessage } from '@/types/messages'
 
 export function useThreadReplies(parentMessageId: string | null) {
   const [replies, setReplies] = useState<ChannelMessage[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
-  const { user: currentUser } = useCurrentUser()
-  const supabase = createClient()
+  const { user: currentUser } = useAuth()
 
   // Debug function
   const logWithTime = (message: string, data?: any) => {

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { useCurrentUser } from './useCurrentUser'
+import { supabase } from '@/lib/supabase/client'
+import { useAuth } from '@/contexts/AuthContext'
 import { toast } from 'sonner'
 
 interface Message {
@@ -60,8 +60,7 @@ export function useMessages(channelId: string | null) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
-  const { user: currentUser } = useCurrentUser()
-  const supabase = createClient()
+  const { user: currentUser } = useAuth()
   const messagesRef = useRef<Message[]>([])
 
   // Update ref whenever messages change

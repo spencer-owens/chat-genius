@@ -1,7 +1,7 @@
 'use client'
 
 import { useUsers } from '@/hooks/useUsers'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
 import { Circle } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -10,7 +10,7 @@ import { useDirectMessages } from '@/hooks/useDirectMessages'
 
 export default function DMPage() {
   const { users } = useUsers()
-  const { user: currentUser } = useCurrentUser()
+  const { user: currentUser } = useAuth()
   const otherUsers = users.filter(u => u.id !== currentUser?.id)
 
   return (

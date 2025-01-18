@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { UserPresenceIndicator } from '../shared/UserPresenceIndicator'
 import { format } from 'date-fns'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { useAuth } from '@/contexts/AuthContext'
 import { FileAttachment } from './FileAttachment'
 import { Message, ChannelMessage } from '@/types/messages'
 import { cn } from '@/lib/utils'
@@ -17,7 +17,7 @@ interface MessageListProps {
 }
 
 export function MessageList({ messages, onReaction, onThreadClick, type }: MessageListProps) {
-  const { user: currentUser } = useCurrentUser()
+  const { user: currentUser } = useAuth()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 

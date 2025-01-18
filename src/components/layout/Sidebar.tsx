@@ -17,7 +17,7 @@ import { ExpandableNavItem } from './ExpandableNavItem'
 import { SearchBar } from '../shared/SearchBar'
 import { useChannels } from '@/hooks/useChannels'
 import { useDirectMessages } from '@/hooks/useDirectMessages'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { useAuth } from '@/contexts/AuthContext'
 import { SkeletonLoader } from '../shared/SkeletonLoader'
 import { useUnreadCountsContext } from '@/components/providers/UnreadCountsProvider'
 import { ChannelLink } from '../channels/ChannelLink'
@@ -76,7 +76,7 @@ const bottomNavItems = [
 export function Sidebar() {
   const pathname = usePathname()
   const { channels, loading: channelsLoading } = useChannels()
-  const { user } = useCurrentUser()
+  const { user } = useAuth()
   const { channelUnreadCounts, dmUnreadCounts, markChannelAsRead, markDmAsRead } = useUnreadCountsContext()
   const { users: dmUsers, loading: dmUsersLoading } = useDMUsers()
   const { updateStatus, getUserStatus } = useUserPresence()
@@ -98,6 +98,9 @@ export function Sidebar() {
         .map(userId => markDmAsRead(userId))
     )
   }, [user, channelUnreadCounts, dmUnreadCounts, markChannelAsRead, markDmAsRead])
+
+  // Return null if user is not authenticated
+  if (!user) return null
 
   const handleSearch = (query: string) => {
     // Implement search functionality

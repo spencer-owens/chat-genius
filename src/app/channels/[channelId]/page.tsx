@@ -1,20 +1,18 @@
 'use client'
 
-import { MessageList } from '@/components/chat/MessageList'
-import { MessageInput } from '@/components/chat/MessageInput'
-import { MessageThread } from '@/components/chat/MessageThread'
-import { useMessages } from '@/hooks/useMessages'
-import { useChannels } from '@/hooks/useChannels'
-import { useState, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { useUnreadCounts } from '@/hooks/useUnreadCounts'
-import { NotificationBanner } from '@/components/shared/NotificationBanner'
-import { Loader2 } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import { use } from 'react'
 import { Layout } from '@/components/layout/Layout'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
-import { ChannelMessage } from '@/types/messages'
+import { useAuth } from '@/contexts/AuthContext'
+import { ChannelMessage, Message } from '@/types/messages'
+import { MessageList } from '@/components/chat/MessageList'
+import { MessageInput } from '@/components/chat/MessageInput'
+import { useMessages } from '@/hooks/useMessages'
+import { useState, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { NotificationBanner } from '@/components/shared/NotificationBanner'
+import { useUnreadCounts } from '@/hooks/useUnreadCounts'
+import { Status } from '@/types/status'
+import { useChannels } from '@/hooks/useChannels'
 
 interface PageProps {
   params: Promise<{ channelId: string }>
@@ -22,26 +20,18 @@ interface PageProps {
 
 export default function ChannelPage({ params }: PageProps) {
   const { channelId } = use(params)
-  const [selectedThread, setSelectedThread] = useState<ChannelMessage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const { messages, loading: messagesLoading, sendMessage } = useMessages(channelId)
-  const { channels, loading: channelsLoading } = useChannels()
+  const { user: currentUser } = useAuth()
   const { markChannelAsRead } = useUnreadCounts()
-  const { user: currentUser } = useCurrentUser()
-  const supabase = createClient()
+  const { channels, loading: channelsLoading } = useChannels()
+  const channel = channels?.find(c => c.id === channelId)
 
-  // Mark channel as read when we navigate to it
   useEffect(() => {
     if (channelId && currentUser) {
       markChannelAsRead(channelId)
     }
   }, [channelId, currentUser, markChannelAsRead])
-
-  const channel = channels.find(c => c.id === channelId)
-
-  if (channelsLoading || !channel) {
-    return null
-  }
 
   const handleSendMessage = async (
     content: string,
@@ -63,81 +53,55 @@ export default function ChannelPage({ params }: PageProps) {
     }
   }
 
+  // Convert messages to ChannelMessage type
+  const channelMessages = messages.map(m => ({
+    ...m,
+    type: 'channel' as const,
+    channel_id: channelId,
+    reply_count: 0, // Default value since we don't track this yet
+    reactions: [], // Default value since we don't track this yet
+    sender: {
+      ...m.sender,
+      status: m.sender.status as Status
+    }
+  })) as ChannelMessage[]
+
+  const handleReaction = (messageId: string, emoji: string) => {
+    // TODO: Implement reaction handling
+    console.log('Reaction:', messageId, emoji)
+  }
+
+  const handleThreadClick = (messageId: string) => {
+    // TODO: Implement thread handling
+    console.log('Thread click:', messageId)
+  }
+
+  if (channelsLoading) {
+    return <div>Loading...</div>
+  }
+
   return (
-    <Layout>
-      <div className="flex flex-col h-full bg-gray-900">
-        {/* Fixed Header */}
-        <div className="flex-none sticky top-0 z-10 bg-gray-900 p-4 border-b border-gray-700">
-          <div className="flex items-center space-x-3">
-            <div>
-              <h2 className="text-lg font-medium text-white">
-                #{channel.name}
-              </h2>
-              {channel.description && (
-                <p className="text-sm text-gray-400">
-                  {channel.description}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
+    <div className="flex flex-col h-full">
+      {error && (
+        <NotificationBanner
+          type="error"
+          message={error}
+          onClose={() => setError(null)}
+        />
+      )}
 
-        {/* Error Banner - moved inside scrollable area but at the top */}
-        {error && (
-          <div className="flex-none px-4 py-2 bg-gray-900">
-            <NotificationBanner
-              type="error"
-              message={error}
-              onClose={() => setError(null)}
-            />
-          </div>
-        )}
+      <MessageList
+        messages={channelMessages}
+        type="channel"
+        onReaction={handleReaction}
+        onThreadClick={handleThreadClick}
+      />
 
-        {/* Main Content Area */}
-        <div className="flex flex-1 min-h-0">
-          {/* Messages Area */}
-          <div className="flex-1 flex flex-col min-h-0">
-            <div className="flex-1 overflow-y-auto">
-              {messagesLoading ? (
-                <div className="h-full flex items-center justify-center">
-                  <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-                </div>
-              ) : (
-                <MessageList
-                  messages={messages as ChannelMessage[]}
-                  type="channel"
-                  onReaction={(messageId, emoji) => {
-                    // Handle reaction
-                  }}
-                  onThreadClick={(messageId) => {
-                    const message = (messages as ChannelMessage[]).find(m => m.id === messageId)
-                    if (message) {
-                      setSelectedThread(message)
-                    }
-                  }}
-                />
-              )}
-            </div>
-
-            {/* Fixed Input Area */}
-            <div className="flex-none p-4 border-t border-gray-700 bg-gray-900">
-              <MessageInput
-                onSend={handleSendMessage}
-                channelId={channelId}
-                placeholder={`Message #${channel.name}`}
-              />
-            </div>
-          </div>
-
-          {/* Thread Panel */}
-          {selectedThread && (
-            <MessageThread
-              parentMessage={selectedThread}
-              onClose={() => setSelectedThread(null)}
-            />
-          )}
-        </div>
-      </div>
-    </Layout>
+      <MessageInput 
+        onSend={handleSendMessage}
+        channelId={channelId}
+        placeholder={channel ? `Type a message in #${channel.name}` : 'Type a message...'}
+      />
+    </div>
   )
 } 

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Layout } from '@/components/layout/Layout'
 import { useChannels } from '@/hooks/useChannels'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { useAuth } from '@/contexts/AuthContext'
 import { CreateChannelModal } from '@/components/channels/CreateChannelModal'
 import { SearchBar } from '@/components/shared/SearchBar'
 import { NotificationBanner } from '@/components/shared/NotificationBanner'
@@ -13,7 +13,7 @@ import Link from 'next/link'
 
 export default function ChannelsPage() {
   const { channels, loading: channelsLoading } = useChannels()
-  const { user, loading: userLoading } = useCurrentUser()
+  const { user, loading: userLoading } = useAuth()
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')

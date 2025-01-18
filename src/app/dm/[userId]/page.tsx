@@ -8,7 +8,7 @@ import { useUsers } from '@/hooks/useUsers'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { NotificationBanner } from '@/components/shared/NotificationBanner'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { useAuth } from '@/contexts/AuthContext'
 import { Loader2, Circle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { use } from 'react'
@@ -25,7 +25,7 @@ export default function DMPage({ params }: PageProps) {
   const [error, setError] = useState<string | null>(null)
   const { messages, loading: messagesLoading, sendMessage } = useDirectMessages(userId)
   const { users, loading: usersLoading } = useUsers()
-  const { user: currentUser } = useCurrentUser()
+  const { user: currentUser } = useAuth()
   const { markDmAsRead } = useUnreadCounts()
   const { getUserStatus } = useUserPresence()
 

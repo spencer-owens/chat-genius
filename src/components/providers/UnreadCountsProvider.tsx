@@ -2,7 +2,7 @@
 
 import { createContext, useContext, ReactNode } from 'react'
 import { useUnreadCounts } from '@/hooks/useUnreadCounts'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { useAuth } from '@/contexts/AuthContext'
 import { User } from '@supabase/supabase-js'
 
 interface UnreadCountsContextType {
@@ -16,7 +16,7 @@ interface UnreadCountsContextType {
 const UnreadCountsContext = createContext<UnreadCountsContextType | null>(null)
 
 export function UnreadCountsProvider({ children }: { children: ReactNode }) {
-  const { user } = useCurrentUser()
+  const { user } = useAuth()
   const unreadCounts = useUnreadCounts(user as User | null)
 
   return (

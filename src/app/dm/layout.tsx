@@ -2,7 +2,7 @@
 
 import { Layout } from '@/components/layout/Layout'
 import { useUsers } from '@/hooks/useUsers'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { useAuth } from '@/contexts/AuthContext'
 import Link from 'next/link'
 import { Circle, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -15,7 +15,7 @@ export default function DMLayout({
   children: React.ReactNode
 }) {
   const { users, loading: usersLoading } = useUsers()
-  const { user: currentUser } = useCurrentUser()
+  const { user: currentUser } = useAuth()
   const pathname = usePathname()
   const { getUserStatus } = useUserPresence()
   

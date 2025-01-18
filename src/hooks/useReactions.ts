@@ -1,10 +1,8 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { useCurrentUser } from './useCurrentUser'
+import { supabase } from '@/lib/supabase/client'
+import { useAuth } from '@/contexts/AuthContext'
 import { toast } from 'sonner'
 import { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
-
-const supabase = createClient()
 
 // Cache reactions for 30 seconds
 const reactionCache = new Map<string, { data: GroupedReaction[], timestamp: number }>()
@@ -44,7 +42,7 @@ type ReactionPayload = RealtimePostgresChangesPayload<{
 export function useReactions(messageId: string, messageType: MessageType) {
   const [reactions, setReactions] = useState<GroupedReaction[]>([])
   const [loading, setLoading] = useState(true)
-  const { user } = useCurrentUser()
+  const { user } = useAuth()
   const mountedRef = useRef(true)
   const dbMessageType = useMemo(() => getDbMessageType(messageType), [messageType])
   const fetchingRef = useRef(false)

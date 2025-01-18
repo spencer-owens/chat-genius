@@ -1,12 +1,23 @@
 import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { supabase } from '@/lib/supabase/client'
+import { useAuth } from '@/contexts/AuthContext'
+
+interface DMUser {
+  id: string
+  username: string
+  status: string
+  profile_picture?: string
+}
+
+type MessageWithUsers = {
+  sender: DMUser
+  receiver: DMUser
+}
 
 export function useDMUsers() {
-  const [users, setUsers] = useState<any[]>([])
+  const [users, setUsers] = useState<DMUser[]>([])
   const [loading, setLoading] = useState(true)
-  const { user: currentUser } = useCurrentUser()
-  const supabase = createClient()
+  const { user: currentUser } = useAuth()
 
   useEffect(() => {
     if (!currentUser) {
@@ -14,6 +25,8 @@ export function useDMUsers() {
       setLoading(false)
       return
     }
+
+    const userId = currentUser.id
 
     async function fetchDMUsers() {
       try {
@@ -33,16 +46,19 @@ export function useDMUsers() {
               profile_picture
             )
           `)
-          .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`)
+          .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
 
         if (error) throw error
 
         // Extract unique users excluding current user
-        const uniqueUsers = new Map()
-        data?.forEach(msg => {
-          const otherUser = msg.sender.id === currentUser.id ? msg.receiver : msg.sender
-          uniqueUsers.set(otherUser.id, otherUser)
-        })
+        const uniqueUsers = new Map<string, DMUser>()
+        if (data) {
+          const messages = data as unknown as MessageWithUsers[]
+          messages.forEach(msg => {
+            const otherUser = msg.sender.id === userId ? msg.receiver : msg.sender
+            uniqueUsers.set(otherUser.id, otherUser)
+          })
+        }
 
         setUsers(Array.from(uniqueUsers.values()))
       } catch (error) {

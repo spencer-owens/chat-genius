@@ -1,10 +1,8 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { supabase } from '@/lib/supabase/client'
 import { User } from '@supabase/supabase-js'
 import { toast } from 'sonner'
 import { usePathname } from 'next/navigation'
-
-const supabase = createClient()
 
 // Helper function to log with timestamp
 const logWithTime = (message: string, data: unknown = ''): void => {

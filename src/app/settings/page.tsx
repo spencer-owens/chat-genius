@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Layout } from '@/components/layout/Layout'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
 import { UserPresenceIndicator } from '@/components/shared/UserPresenceIndicator'
 import { NotificationBanner } from '@/components/shared/NotificationBanner'
@@ -13,7 +13,7 @@ import { createClient } from '@/lib/supabase/client'
 export default function SettingsPage() {
   const router = useRouter()
   const supabase = createClient()
-  const { user, loading: userLoading } = useCurrentUser()
+  const { user, loading: userLoading } = useAuth()
   const [isEditing, setIsEditing] = useState(false)
   const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null)
   const [uploading, setUploading] = useState(false)

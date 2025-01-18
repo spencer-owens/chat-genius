@@ -1,11 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { useCurrentUser } from './useCurrentUser'
+import { supabase } from '@/lib/supabase/client'
+import { useAuth } from '@/contexts/AuthContext'
 
 export function useTypingIndicator(channelId: string | null) {
   const [typingUsers, setTypingUsers] = useState<Record<string, boolean>>({})
-  const { user: currentUser } = useCurrentUser()
-  const supabase = createClient()
+  const { user: currentUser } = useAuth()
 
   useEffect(() => {
     if (!channelId || !currentUser) return
