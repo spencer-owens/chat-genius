@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { Database } from '@/types/supabase'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
+import { User } from '@supabase/supabase-js'
 
 type Tables = Database['public']['Tables']
 type DatabaseMessage = {
@@ -27,6 +28,16 @@ type DatabaseMessage = {
 }
 
 interface StoreState {
+  // Auth State
+  session: { user: User } | null
+  loading: boolean
+  setSession: (session: { user: User } | null) => void
+  setLoading: (loading: boolean) => void
+  signIn: (email: string, password: string) => Promise<void>
+  signUp: (email: string, password: string, username: string) => Promise<void>
+  signOut: () => Promise<void>
+  updateUserProfile: (session: { user: User }) => Promise<boolean>
+
   // Existing state
   currentUser: Tables['users']['Row'] | null
   setCurrentUser: (user: Tables['users']['Row'] | null) => void
@@ -92,6 +103,180 @@ interface StoreState {
 }
 
 const useStore = create<StoreState>((set, get) => ({
+  // Auth State
+  session: null,
+  loading: true,
+  setSession: (session) => set({ session }),
+  setLoading: (loading) => set({ loading }),
+
+  signIn: async (email, password) => {
+    const supabase = createClient()
+    try {
+      set({ loading: true })
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+      if (error) throw error
+    } catch (error: any) {
+      toast.error(error.message || 'Error signing in')
+      throw error
+    } finally {
+      set({ loading: false })
+    }
+  },
+
+  signUp: async (email, password, username) => {
+    const supabase = createClient()
+    try {
+      set({ loading: true })
+      // First check if username is available
+      const { data: existingUser, error: checkError } = await supabase
+        .from('users')
+        .select('username')
+        .eq('username', username)
+        .maybeSingle()
+
+      if (checkError) {
+        console.error('Error checking username:', checkError)
+        throw new Error('Error checking username availability')
+      }
+
+      if (existingUser) {
+        throw new Error('Username already taken')
+      }
+
+      // Sign up the user
+      const { error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            username
+          }
+        }
+      })
+      
+      if (signUpError) throw signUpError
+
+      toast.success('Check your email to confirm your account')
+    } catch (error: any) {
+      toast.error(error.message || 'Error signing up')
+      throw error
+    } finally {
+      set({ loading: false })
+    }
+  },
+
+  signOut: async () => {
+    const supabase = createClient()
+    const { currentUser } = get()
+    try {
+      set({ loading: true })
+      // Update status to offline before signing out
+      if (currentUser) {
+        await supabase
+          .from('users')
+          .update({ status: 'offline' as Tables['users']['Row']['status'] })
+          .eq('id', currentUser.id)
+      }
+      
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
+
+      // Clear store state
+      set({ 
+        session: null,
+        currentUser: null,
+        channels: [],
+        messagesByChannel: {},
+        messagesByThread: {},
+        userPresence: {},
+        lastReadByChannel: {},
+        dmUsers: [],
+        typingUsers: {},
+        channelUnreadCounts: {},
+        dmUnreadCounts: {}
+      })
+    } catch (error: any) {
+      toast.error(error.message || 'Error signing out')
+      throw error
+    } finally {
+      set({ loading: false })
+    }
+  },
+
+  updateUserProfile: async (session) => {
+    const supabase = createClient()
+    try {
+      // Check if user has a profile
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', session.user.id)
+        .single()
+
+      // If profile doesn't exist, create it
+      if (!profile && profileError?.code === 'PGRST116') {
+        // Ensure we have valid values for required fields
+        const email = session.user.email
+        const username = session.user.user_metadata?.username || session.user.email?.split('@')[0]
+
+        if (!email || !username) {
+          console.error('Missing required user data:', { email, username })
+          return false
+        }
+
+        const { error: createError } = await supabase
+          .from('users')
+          .insert({
+            id: session.user.id,
+            email,
+            username,
+            status: 'online' as Tables['users']['Row']['status'],
+            is_verified: session.user.email_confirmed_at ? true : false
+          })
+          .select()
+
+        if (createError) {
+          console.error('Error creating missing profile:', createError)
+          toast.error('Error creating user profile')
+          return false
+        }
+      } else if (profileError && profileError.code !== 'PGRST116') {
+        console.error('Error checking profile:', profileError)
+        return false
+      }
+
+      // Update is_verified if user is confirmed
+      if (session.user.email_confirmed_at && profile && !profile.is_verified) {
+        const { error: verifyError } = await supabase
+          .from('users')
+          .update({ is_verified: true })
+          .eq('id', session.user.id)
+
+        if (verifyError) {
+          console.error('Error updating verification status:', verifyError)
+        }
+      }
+
+      // Update status to online
+      const { error: statusError } = await supabase
+        .from('users')
+        .update({ status: 'online' as Tables['users']['Row']['status'] })
+        .eq('id', session.user.id)
+
+      if (statusError) {
+        console.error('Error updating online status:', statusError)
+      }
+
+      return true
+    } catch (error) {
+      console.error('Error updating user profile:', error)
+      return false
+    }
+  },
+
   // Existing state
   currentUser: null,
   setCurrentUser: (user) => set({ currentUser: user }),

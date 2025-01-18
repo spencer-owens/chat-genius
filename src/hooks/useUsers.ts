@@ -14,6 +14,7 @@ export function useUsers() {
     setUserPresence
   } = useStore()
   const [users, setUsers] = useState<User[]>([])
+  const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
   // Use our new realtime subscription
@@ -40,6 +41,8 @@ export function useUsers() {
         setUsers(data)
       } catch (error) {
         console.error('Error fetching users:', error)
+      } finally {
+        setLoading(false)
       }
     }
 
@@ -52,5 +55,5 @@ export function useUsers() {
     status: userPresence[user.id] || user.status
   }))
 
-  return { users: usersWithPresence }
+  return { users: usersWithPresence, loading }
 } 
