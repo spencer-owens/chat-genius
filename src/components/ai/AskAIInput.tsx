@@ -2,11 +2,11 @@
 
 import { useState } from 'react'
 import { Search } from 'lucide-react'
-import { useAI } from '@/contexts/AIContext'
+import useStore from '@/store'
 
 export default function AskAIInput() {
   const [question, setQuestion] = useState('')
-  const { askQuestion, isLoading } = useAI()
+  const { askQuestion, aiLoading: isLoading } = useStore()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

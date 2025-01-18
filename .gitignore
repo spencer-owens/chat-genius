@@ -43,3 +43,6 @@ next-env.d.ts
 # markdown files (except README)
 *.md
 !README.md
+
+# reference codebase
+reference-codebase/

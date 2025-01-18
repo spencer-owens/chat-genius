@@ -1,35 +1,49 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import useStore from '@/store'
+import { Database } from '@/types/supabase'
+
+type Tables = Database['public']['Tables']
+type User = Tables['users']['Row']
 
 export function useUsers() {
-  const [users, setUsers] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
+  const { 
+    currentUser,
+    userPresence,
+    setUserPresence
+  } = useStore()
   const supabase = createClient()
 
   useEffect(() => {
     async function fetchUsers() {
       try {
-        const { data: currentUser } = await supabase.auth.getUser()
-        if (!currentUser.user) return
+        if (!currentUser) return
 
         const { data, error } = await supabase
           .from('users')
           .select('*')
-          .neq('id', currentUser.user.id)
+          .neq('id', currentUser.id)
           .order('username')
 
         if (error) throw error
-        setUsers(data || [])
-      } catch (e) {
-        setError(e as Error)
-      } finally {
-        setLoading(false)
+
+        // Initialize presence for each user
+        data.forEach(user => {
+          setUserPresence(user.id, user.status)
+        })
+      } catch (error) {
+        console.error('Error fetching users:', error)
       }
     }
 
     fetchUsers()
-  }, [])
+  }, [currentUser])
 
-  return { users, loading, error }
+  return { 
+    users: Object.entries(userPresence).map(([id, status]) => ({
+      id,
+      status
+    })),
+    loading: false
+  }
 } 

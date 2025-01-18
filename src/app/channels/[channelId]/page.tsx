@@ -1,6 +1,6 @@
 'use client'
 
-import { MessageList } from '@/components/chat/MessageList'
+import MessageList from '@/components/chat/MessageList'
 import { MessageInput } from '@/components/chat/MessageInput'
 import { MessageThread } from '@/components/chat/MessageThread'
 import { useMessages } from '@/hooks/useMessages'
@@ -10,11 +10,34 @@ import { createClient } from '@/lib/supabase/client'
 import { useUnreadCounts } from '@/hooks/useUnreadCounts'
 import { NotificationBanner } from '@/components/shared/NotificationBanner'
 import { Loader2 } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { use } from 'react'
 import { Layout } from '@/components/layout/Layout'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { Database } from '@/types/supabase'
+import { use } from 'react'
 import { ChannelMessage } from '@/types/messages'
+
+type Tables = Database['public']['Tables']
+type DatabaseMessage = {
+  id: string
+  content: string
+  sender_id: string
+  channel_id: string
+  thread_id: string | null
+  created_at: string | null
+  updated_at: string | null
+  file_id: string | null
+  reply_count: number | null
+  sender: Tables['users']['Row']
+  reactions: Tables['reactions']['Row'][]
+  file_metadata?: {
+    message_id: string
+    bucket: string
+    path: string
+    name: string
+    type: string
+    size: string
+  }
+}
 
 interface PageProps {
   params: Promise<{ channelId: string }>
@@ -22,20 +45,20 @@ interface PageProps {
 
 export default function ChannelPage({ params }: PageProps) {
   const { channelId } = use(params)
-  const [selectedThread, setSelectedThread] = useState<ChannelMessage | null>(null)
+  const [selectedThread, setSelectedThread] = useState<DatabaseMessage | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const { messages, loading: messagesLoading, sendMessage } = useMessages(channelId)
+  const { messages, loading: messagesLoading } = useMessages(channelId)
   const { channels, loading: channelsLoading } = useChannels()
-  const { markChannelAsRead } = useUnreadCounts()
+  const { updateLastRead } = useUnreadCounts()
   const { user: currentUser } = useCurrentUser()
   const supabase = createClient()
 
   // Mark channel as read when we navigate to it
   useEffect(() => {
     if (channelId && currentUser) {
-      markChannelAsRead(channelId)
+      updateLastRead(channelId)
     }
-  }, [channelId, currentUser, markChannelAsRead])
+  }, [channelId, currentUser, updateLastRead])
 
   const channel = channels.find(c => c.id === channelId)
 
@@ -56,12 +79,41 @@ export default function ChannelPage({ params }: PageProps) {
       // If we have a file but no content, use the file name as content
       const messageContent = content || (fileMetadata ? `Shared a file: ${fileMetadata.name}` : '')
       
-      await sendMessage(messageContent, fileMetadata)
+      // TODO: Implement sendMessage through store
+      // await sendMessage(messageContent, fileMetadata)
     } catch (error) {
       console.error('Error sending message:', error)
       setError(error instanceof Error ? error.message : 'Failed to send message')
     }
   }
+
+  // Transform the selected message to ChannelMessage type when needed for the thread
+  const selectedChannelMessage = selectedThread ? {
+    id: selectedThread.id,
+    content: selectedThread.content,
+    created_at: selectedThread.created_at || new Date().toISOString(),
+    thread_id: selectedThread.thread_id || undefined,
+    type: 'channel' as const,
+    channel_id: channelId,
+    sender: {
+      id: selectedThread.sender_id,
+      username: selectedThread.sender.username || '',
+      status: selectedThread.sender.status || 'offline',
+      profile_picture: selectedThread.sender.profile_picture || undefined
+    },
+    reactions: selectedThread.reactions.map(reaction => ({
+      emoji: reaction.emoji,
+      user_id: reaction.user_id
+    })),
+    reply_count: selectedThread.reply_count || 0,
+    file: selectedThread.file_metadata ? {
+      id: selectedThread.file_id!,
+      url: supabase.storage.from(selectedThread.file_metadata.bucket).getPublicUrl(selectedThread.file_metadata.path).data.publicUrl,
+      name: selectedThread.file_metadata.name,
+      type: selectedThread.file_metadata.type,
+      size: parseInt(selectedThread.file_metadata.size)
+    } : undefined
+  } : null
 
   return (
     <Layout>
@@ -104,17 +156,9 @@ export default function ChannelPage({ params }: PageProps) {
                 </div>
               ) : (
                 <MessageList
-                  messages={messages as ChannelMessage[]}
-                  type="channel"
-                  onReaction={(messageId, emoji) => {
-                    // Handle reaction
-                  }}
-                  onThreadClick={(messageId) => {
-                    const message = (messages as ChannelMessage[]).find(m => m.id === messageId)
-                    if (message) {
-                      setSelectedThread(message)
-                    }
-                  }}
+                  messages={messages}
+                  channelId={channelId}
+                  onUpdateLastRead={() => updateLastRead(channelId)}
                 />
               )}
             </div>
@@ -130,9 +174,9 @@ export default function ChannelPage({ params }: PageProps) {
           </div>
 
           {/* Thread Panel */}
-          {selectedThread && (
+          {selectedChannelMessage && (
             <MessageThread
-              parentMessage={selectedThread}
+              parentMessage={selectedChannelMessage}
               onClose={() => setSelectedThread(null)}
             />
           )}

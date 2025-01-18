@@ -1,19 +1,67 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
+import useStore from '@/store'
+import { createClient } from '@/lib/supabase/client'
+import { toast } from 'sonner'
 
 interface CreateChannelModalProps {
   onClose: () => void
-  onSubmit: (data: { name: string; description: string; is_private: boolean }) => void
 }
 
-export function CreateChannelModal({ onClose, onSubmit }: CreateChannelModalProps) {
+export function CreateChannelModal({ onClose }: CreateChannelModalProps) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [isPrivate, setIsPrivate] = useState(false)
+  const { currentUser, addChannel } = useStore()
+  const supabase = createClient()
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    onSubmit({ name, description, is_private: isPrivate })
+    
+    if (!currentUser?.id) {
+      toast.error('You must be logged in to create a channel')
+      return
+    }
+
+    try {
+      const { data: channel, error } = await supabase
+        .from('channels')
+        .insert({
+          name,
+          description,
+          is_private: isPrivate
+        })
+        .select('*, memberships(*)')
+        .single()
+
+      if (error) throw error
+
+      // Add creator as admin
+      const { error: membershipError } = await supabase
+        .from('memberships')
+        .insert({
+          channel_id: channel.id,
+          user_id: currentUser.id,
+          is_admin: true
+        })
+
+      if (membershipError) throw membershipError
+
+      // Add channel to store
+      addChannel({
+        ...channel,
+        memberships: [{
+          user_id: currentUser.id,
+          is_admin: true
+        }]
+      })
+
+      toast.success('Channel created successfully')
+      onClose()
+    } catch (error) {
+      console.error('Error creating channel:', error)
+      toast.error('Failed to create channel')
+    }
   }
 
   return (
@@ -55,12 +103,13 @@ export function CreateChannelModal({ onClose, onSubmit }: CreateChannelModalProp
           <div className="flex items-center">
             <input
               type="checkbox"
+              id="isPrivate"
               checked={isPrivate}
               onChange={(e) => setIsPrivate(e.target.checked)}
-              className="rounded bg-gray-700 border-transparent focus:ring-blue-500 text-blue-500"
+              className="rounded bg-gray-700 border-transparent focus:ring-offset-0 focus:ring-0 text-blue-500"
             />
-            <label className="ml-2 text-sm text-gray-200">
-              Make channel private
+            <label htmlFor="isPrivate" className="ml-2 text-sm text-gray-200">
+              Make this channel private
             </label>
           </div>
 
@@ -68,13 +117,13 @@ export function CreateChannelModal({ onClose, onSubmit }: CreateChannelModalProp
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-300 hover:text-white"
+              className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600"
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-500 rounded-md hover:bg-blue-600"
             >
               Create Channel
             </button>

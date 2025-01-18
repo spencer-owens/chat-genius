@@ -1,8 +1,7 @@
 'use client'
 
 import { ReactNode } from 'react'
-import { UnreadCountsProvider } from './UnreadCountsProvider'
-import { AIProvider } from '@/contexts/AIContext'
+import { Toaster } from 'sonner'
 
 interface ProvidersProps {
   children: ReactNode
@@ -10,10 +9,9 @@ interface ProvidersProps {
 
 export function Providers({ children }: ProvidersProps) {
   return (
-    <UnreadCountsProvider>
-      <AIProvider>
-        {children}
-      </AIProvider>
-    </UnreadCountsProvider>
+    <>
+      <Toaster />
+      {children}
+    </>
   )
 } 

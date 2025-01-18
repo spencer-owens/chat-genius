@@ -8,6 +8,21 @@ import { Circle, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { usePathname } from 'next/navigation'
 import { useUserPresence } from '@/hooks/useUserPresence'
+import { Database } from '@/types/supabase'
+
+type Tables = Database['public']['Tables']
+type Enums = Database['public']['Enums']
+
+type DMUser = {
+  id: string
+  username: string
+  status: Enums['user_status']
+  profile_picture: string | null
+  email: string
+  created_at: string | null
+  updated_at: string | null
+  is_verified: boolean | null
+}
 
 export default function DMLayout({
   children
@@ -19,7 +34,7 @@ export default function DMLayout({
   const pathname = usePathname()
   const { getUserStatus } = useUserPresence()
   
-  const otherUsers = users.filter(u => u.id !== currentUser?.id)
+  const otherUsers = (users as DMUser[]).filter(u => u.id !== currentUser?.id)
 
   return (
     <Layout>
@@ -52,7 +67,9 @@ export default function DMLayout({
                         />
                       ) : (
                         <div className="h-8 w-8 rounded-full bg-gray-600 flex items-center justify-center">
-                          <span className="text-white">{user.username[0]}</span>
+                          <span className="text-white">
+                            {user.username ? user.username[0].toUpperCase() : '?'}
+                          </span>
                         </div>
                       )}
                     </div>

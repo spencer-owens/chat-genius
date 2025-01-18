@@ -1,184 +1,158 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useCurrentUser } from './useCurrentUser'
-import { ChannelMessage } from '@/types/messages'
+import useStore from '@/store'
+import { Database } from '@/types/supabase'
+import { toast } from 'sonner'
 
-export function useThreadReplies(parentMessageId: string | null) {
-  const [replies, setReplies] = useState<ChannelMessage[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
-  const { user: currentUser } = useCurrentUser()
+type Tables = Database['public']['Tables']
+type DatabaseMessage = {
+  id: string
+  content: string
+  sender_id: string
+  channel_id: string
+  thread_id: string | null
+  created_at: string | null
+  updated_at: string | null
+  file_id: string | null
+  reply_count: number | null
+  sender: Tables['users']['Row']
+  reactions: Tables['reactions']['Row'][]
+  file_metadata?: {
+    message_id: string
+    bucket: string
+    path: string
+    name: string
+    type: string
+    size: string
+  }
+}
+
+export function useThreadReplies(threadId: string | null) {
+  const { 
+    messagesByThread,
+    setThreadMessages,
+    addThreadMessage,
+    updateThreadMessage,
+    removeThreadMessage,
+    sendMessage
+  } = useStore()
   const supabase = createClient()
 
-  // Debug function
-  const logWithTime = (message: string, data?: any) => {
-    console.log(`[${new Date().toISOString()}] [Thread] ${message}`, data || '')
-  }
-
   useEffect(() => {
-    if (!parentMessageId || !currentUser) {
-      setReplies([])
-      setLoading(false)
-      return
-    }
-
-    logWithTime('Setting up thread replies hook', { parentMessageId })
+    if (!threadId) return
 
     async function fetchReplies() {
       try {
-        logWithTime('Fetching replies')
         const { data, error } = await supabase
           .from('messages')
           .select(`
             *,
-            sender:users!sender_id(
-              id,
-              username,
-              status,
-              profile_picture
-            ),
+            sender:users(*),
             reactions(*),
-            file:file_metadata(
-              id,
+            file_metadata:file_metadata(
+              message_id,
+              bucket,
+              path,
               name,
               type,
-              size,
-              path
+              size
             )
           `)
-          .eq('thread_id', parentMessageId)
+          .eq('thread_id', threadId)
           .order('created_at', { ascending: true })
 
         if (error) throw error
 
-        logWithTime('Replies fetched', { count: data?.length })
-
-        const formattedReplies = (data || []).map(reply => ({
-          ...reply,
-          type: 'channel' as const,
-          reply_count: 0, // Thread replies can't have their own threads
-          file: reply.file ? {
-            ...reply.file,
-            url: supabase.storage.from('public-documents').getPublicUrl(reply.file.path).data.publicUrl
-          } : undefined
-        }))
-
-        setReplies(formattedReplies)
-      } catch (e) {
-        setError(e as Error)
-        console.error('Error fetching thread replies:', e)
-      } finally {
-        setLoading(false)
+        const messages = data as DatabaseMessage[]
+        setThreadMessages(threadId, messages)
+      } catch (error) {
+        console.error('Error fetching thread replies:', error)
+        toast.error('Error loading replies')
       }
     }
 
     fetchReplies()
 
-    // Set up real-time subscription for thread replies
-    const channel = supabase
-      .channel(`thread:${parentMessageId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `thread_id=eq.${parentMessageId}`
-        },
-        async (payload) => {
-          logWithTime('Received new reply payload', payload)
+    // Thread replies subscription
+    const repliesSub = supabase.channel(`thread:${threadId}`)
+    
+    repliesSub.on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'messages', filter: `thread_id=eq.${threadId}` },
+      async (payload: any) => {
+        const { eventType, new: newMessage, old } = payload
 
-          // Fetch the complete reply to ensure we have all related data
-          const { data, error } = await supabase
-            .from('messages')
-            .select(`
-              *,
-              sender:users!sender_id(
-                id,
-                username,
-                status,
-                profile_picture
-              ),
-              reactions(*),
-              file:file_metadata(
-                id,
-                name,
-                type,
-                size,
-                path
-              )
-            `)
-            .eq('id', payload.new.id)
-            .single()
+        try {
+          if (eventType === 'INSERT' && newMessage?.id) {
+            const { data: message, error } = await supabase
+              .from('messages')
+              .select(`
+                *,
+                sender:users(*),
+                reactions(*),
+                file_metadata:file_metadata(
+                  message_id,
+                  bucket,
+                  path,
+                  name,
+                  type,
+                  size
+                )
+              `)
+              .eq('id', newMessage.id)
+              .single()
 
-          if (error) {
-            console.error('Error fetching new reply details:', error)
-            return
+            if (error) throw error
+
+            addThreadMessage(threadId, message as DatabaseMessage)
+          } else if (eventType === 'UPDATE' && newMessage?.id) {
+            const { data: message, error } = await supabase
+              .from('messages')
+              .select(`
+                *,
+                sender:users(*),
+                reactions(*),
+                file_metadata:file_metadata(
+                  message_id,
+                  bucket,
+                  path,
+                  name,
+                  type,
+                  size
+                )
+              `)
+              .eq('id', newMessage.id)
+              .single()
+
+            if (error) throw error
+
+            updateThreadMessage(threadId, message as DatabaseMessage)
+          } else if (eventType === 'DELETE' && old?.id) {
+            removeThreadMessage(threadId, old.id)
           }
-
-          logWithTime('Adding new reply to state', data)
-          
-          setReplies(prev => {
-            // Don't add if we already have this reply
-            const exists = prev.some(reply => reply.id === data.id)
-            if (exists) return prev
-
-            return [...prev, {
-              ...data,
-              type: 'channel' as const,
-              reply_count: 0, // Thread replies can't have their own threads
-              file: data.file ? {
-                ...data.file,
-                url: supabase.storage.from('public-documents').getPublicUrl(data.file.path).data.publicUrl
-              } : undefined
-            }]
-          })
+        } catch (error) {
+          console.error('Error handling thread reply change:', error)
+          toast.error('Error updating replies')
         }
-      )
-      .subscribe((status, err) => {
-        logWithTime('Subscription status changed', { status, error: err })
-      })
+      }
+    )
+
+    repliesSub.subscribe()
 
     return () => {
-      logWithTime('Cleaning up subscription')
-      supabase.removeChannel(channel)
+      supabase.removeChannel(repliesSub)
     }
-  }, [parentMessageId, currentUser])
+  }, [threadId, setThreadMessages, addThreadMessage, updateThreadMessage, removeThreadMessage])
 
-  const sendReply = useCallback(async (
-    content: string,
-    channelId: string,
-    fileMetadata?: { id: string; url: string; name: string; type: string; size: number }
-  ) => {
-    if (!currentUser || !parentMessageId) {
-      throw new Error('Must be logged in to send replies')
-    }
+  const sendReply = async (content: string, channelId: string, fileMetadata?: { id: string; url: string; name: string; type: string; size: number }) => {
+    if (!threadId) return
+    await sendMessage(content, channelId, fileMetadata, threadId)
+  }
 
-    const newReply = {
-      content,
-      channel_id: channelId,
-      thread_id: parentMessageId,
-      sender_id: currentUser.id,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      file_id: fileMetadata?.id
-    }
-
-    logWithTime('Sending reply:', newReply)
-
-    const { error: sendError } = await supabase
-      .from('messages')
-      .insert([newReply])
-
-    if (sendError) {
-      throw sendError
-    }
-  }, [currentUser, parentMessageId])
-
-  return {
-    replies,
-    loading,
-    error,
+  return { 
+    replies: messagesByThread[threadId || ''] || [],
+    loading: false,
+    error: null,
     sendReply
   }
 } 

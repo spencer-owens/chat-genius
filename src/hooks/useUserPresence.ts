@@ -1,146 +1,75 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import useStore from '@/store'
+import { Database } from '@/types/supabase'
 import { toast } from 'sonner'
 
-// Debug function
-const logWithTime = (message: string, data?: any) => {
-  console.log(`[${new Date().toISOString()}] [UserPresence] ${message}`, data || '')
-}
-
-type UserStatus = 'online' | 'offline' | 'away'
-
-interface UserPresenceRecord {
-  id: string
-  status: UserStatus
-  last_seen: string
-}
-
-interface UserStatusMap {
-  [userId: string]: UserStatus
-}
+type Tables = Database['public']['Tables']
+type UserStatus = Tables['users']['Row']['status']
 
 export function useUserPresence() {
-  const [userStatuses, setUserStatuses] = useState<UserStatusMap>({})
-  const lastStatusUpdate = useRef<number>(0)
-  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-
-  const updateStatus = (status: UserStatus) => {
-    const now = Date.now()
-    // Debounce status updates to prevent excessive database calls
-    if (now - lastStatusUpdate.current < 5000) {
-      if (updateTimeoutRef.current) {
-        clearTimeout(updateTimeoutRef.current)
-      }
-      updateTimeoutRef.current = setTimeout(() => {
-        updateStatus(status)
-      }, 5000 - (now - lastStatusUpdate.current))
-      return
-    }
-
-    lastStatusUpdate.current = now
-    const userId = supabase.auth.getUser().then(({ data }) => {
-      if (data.user) {
-        return supabase
-          .from('users')
-          .update({ 
-            status,
-            last_seen: new Date().toISOString()
-          })
-          .eq('id', data.user.id)
-          .then(({ error }) => {
-            if (error) {
-              console.error('Error updating status:', error)
-              toast.error('Failed to update status')
-            }
-          })
-      }
-    })
-  }
+  const { 
+    currentUser,
+    userPresence,
+    setUserPresence
+  } = useStore()
+  const supabase = createClient()
 
   const getUserStatus = (userId: string): UserStatus => {
-    return userStatuses[userId] || 'offline'
+    return userPresence[userId] || 'offline'
   }
 
   useEffect(() => {
-    let isMounted = true
+    if (!currentUser?.id) return
 
-    // Set up visibility change handler
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        updateStatus('online')
-      } else {
-        updateStatus('away')
+    // Set initial status to online
+    async function updateStatus(status: UserStatus) {
+      if (!currentUser?.id) return
+      
+      try {
+        const { error } = await supabase
+          .from('users')
+          .update({ status })
+          .eq('id', currentUser.id)
+
+        if (error) throw error
+        setUserPresence(currentUser.id, status)
+      } catch (error) {
+        console.error('Error updating user status:', error)
+        toast.error('Error updating status')
       }
     }
 
-    // Set up beforeunload handler
-    const handleBeforeUnload = () => {
-      const xhr = new XMLHttpRequest()
-      const userId = supabase.auth.getSession().then(({ data }) => {
-        if (data.session?.user) {
-          xhr.open('POST', '/api/offline-status', false) // Synchronous request
-          xhr.setRequestHeader('Content-Type', 'application/json')
-          xhr.send(JSON.stringify({ userId: data.session.user.id }))
-        }
-      })
-    }
-
-    // Set up real-time subscription for other users' status changes
-    const channel = supabase
-      .channel('user-presence')
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'users',
-          filter: 'status=neq.unchanged'
-        },
-        (payload) => {
-          const oldStatus = payload.old?.status
-          const newStatus = payload.new?.status
-          const userId = payload.new?.id
-
-          if (userId && oldStatus !== newStatus) {
-            logWithTime('User status changed', { userId, oldStatus, newStatus })
-            setUserStatuses(prev => ({
-              ...prev,
-              [userId]: newStatus
-            }))
-          }
-        }
-      )
-      .subscribe((status, err) => {
-        if (err) {
-          console.error('Error subscribing to presence changes:', err)
-          toast.error('Lost connection to presence system')
-        }
-      })
-
-    // Set initial online status
+    // Set status to online when component mounts
     updateStatus('online')
 
-    // Add event listeners
-    document.addEventListener('visibilitychange', handleVisibilityChange)
+    // Set status to offline when window is closed or component unmounts
+    const handleBeforeUnload = async () => {
+      if (!currentUser?.id) return
+      
+      try {
+        const { error } = await supabase
+          .from('users')
+          .update({ status: 'offline' })
+          .eq('id', currentUser.id)
+        
+        if (error) {
+          console.error('Error updating offline status:', error)
+        }
+      } catch (error) {
+        console.error('Error updating offline status:', error)
+      }
+    }
+
     window.addEventListener('beforeunload', handleBeforeUnload)
 
-    // Cleanup
     return () => {
-      isMounted = false
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      window.addEventListener('beforeunload', handleBeforeUnload)
-      channel.unsubscribe()
-      
-      // Set status to offline
+      window.removeEventListener('beforeunload', handleBeforeUnload)
       updateStatus('offline')
     }
-  }, [])
+  }, [currentUser])
 
-  return {
-    updateStatus,
-    getUserStatus,
-    userStatuses
-  }
+  return { userPresence, getUserStatus }
 } 

@@ -1,12 +1,16 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useCurrentUser } from './useCurrentUser'
+import useStore from '@/store'
+import { Database } from '@/types/supabase'
+import { toast } from 'sonner'
+
+type Tables = Database['public']['Tables']
 
 // 5MB for images, 10MB for documents
 const MAX_FILE_SIZES = {
   'image': 5 * 1024 * 1024,
   'document': 10 * 1024 * 1024
-}
+} as const
 
 const ALLOWED_FILE_TYPES = {
   // Images
@@ -21,7 +25,7 @@ const ALLOWED_FILE_TYPES = {
   'application/vnd.ms-excel': 'document',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'document',
   'text/plain': 'document'
-}
+} as const
 
 interface UploadOptions {
   channelId?: string
@@ -29,9 +33,13 @@ interface UploadOptions {
   messageId?: string
 }
 
+type FileMetadata = Tables['file_metadata']['Row'] & {
+  publicUrl: string
+}
+
 export function useFileUpload() {
   const [uploading, setUploading] = useState(false)
-  const { user } = useCurrentUser()
+  const { currentUser } = useStore()
   const supabase = createClient()
 
   const validateFile = (file: File) => {
@@ -49,8 +57,11 @@ export function useFileUpload() {
     return fileType
   }
 
-  const uploadFile = async (file: File, options: UploadOptions) => {
-    if (!user) throw new Error('Must be logged in to upload files')
+  const uploadFile = async (file: File, options: UploadOptions): Promise<FileMetadata> => {
+    if (!currentUser?.id) {
+      toast.error('Must be logged in to upload files')
+      throw new Error('Must be logged in to upload files')
+    }
     
     try {
       setUploading(true)
@@ -62,7 +73,7 @@ export function useFileUpload() {
       const timestamp = new Date().getTime()
       const fileExt = file.name.split('.').pop()
       const fileName = `${timestamp}-${Math.random().toString(36).substring(2)}.${fileExt}`
-      const filePath = `${fileType}s/${user.id}/${fileName}`
+      const filePath = `${fileType}s/${currentUser.id}/${fileName}`
 
       // Upload to storage
       const { data: uploadData, error: uploadError } = await supabase.storage
@@ -72,7 +83,10 @@ export function useFileUpload() {
           upsert: false
         })
 
-      if (uploadError) throw uploadError
+      if (uploadError) {
+        toast.error('Failed to upload file')
+        throw uploadError
+      }
 
       // Get the public URL
       const { data: { publicUrl } } = supabase.storage
@@ -83,7 +97,7 @@ export function useFileUpload() {
       const { data: metaData, error: metaError } = await supabase
         .from('file_metadata')
         .insert({
-          user_id: user.id,
+          user_id: currentUser.id,
           message_id: options.messageId,
           bucket: 'public-documents',
           path: filePath,
@@ -96,7 +110,10 @@ export function useFileUpload() {
         .select()
         .single()
 
-      if (metaError) throw metaError
+      if (metaError) {
+        toast.error('Failed to save file metadata')
+        throw metaError
+      }
 
       return {
         ...metaData,
@@ -104,6 +121,11 @@ export function useFileUpload() {
       }
     } catch (error) {
       console.error('Error uploading file:', error)
+      if (error instanceof Error) {
+        toast.error(error.message)
+      } else {
+        toast.error('Failed to upload file')
+      }
       throw error
     } finally {
       setUploading(false)

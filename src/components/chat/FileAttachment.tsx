@@ -1,44 +1,34 @@
-import { FileIcon, Download } from 'lucide-react'
-import { useState, useEffect } from 'react'
-import * as pdfjs from 'pdfjs-dist'
-
-// Initialize PDF.js worker with standard fonts
-if (typeof window !== 'undefined') {
-  const workerSrc = new URL(
-    'pdfjs-dist/build/pdf.worker.mjs',
-    import.meta.url
-  ).toString()
-  pdfjs.GlobalWorkerOptions.workerSrc = workerSrc
-}
+import { useEffect, useState } from 'react'
+import { Download, FileIcon } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import { toast } from 'sonner'
+import useStore from '@/store'
 
 interface FileAttachmentProps {
-  name: string
-  type: string
-  size: number
-  url: string
+  fileId: string
 }
 
-export function formatFileSize(bytes: number): string {
-  const units = ['B', 'KB', 'MB', 'GB']
-  let size = bytes
-  let unitIndex = 0
+export function FileAttachment({ fileId }: FileAttachmentProps) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false)
+  const { messagesByChannel } = useStore()
+  const supabase = createClient()
 
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024
-    unitIndex++
+  // Find the file metadata from messages
+  const file = Object.values(messagesByChannel)
+    .flat()
+    .find(msg => msg.file?.id === fileId)?.file
+
+  if (!file) {
+    return null
   }
 
-  return `${size.toFixed(1)} ${units[unitIndex]}`
-}
-
-export function FileAttachment({ name, type, size, url }: FileAttachmentProps) {
-  const isImage = type.startsWith('image/')
+  const { name, type, size, url } = file
   const isPDF = type === 'application/pdf'
-  const fileSize = formatFileSize(size)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(isImage ? url : null)
-  const [isPreviewLoading, setIsPreviewLoading] = useState(isPDF)
+  const fileSize = size < 1024 * 1024 
+    ? `${Math.round(size / 1024)} KB`
+    : `${Math.round(size / (1024 * 1024))} MB`
 
-  // Load PDF thumbnail
   useEffect(() => {
     if (!isPDF) return
     
@@ -47,51 +37,40 @@ export function FileAttachment({ name, type, size, url }: FileAttachmentProps) {
 
     const loadPdfThumbnail = async () => {
       try {
-        // Wait for worker to be ready
-        await new Promise(resolve => {
-          if (pdfjs.GlobalWorkerOptions.workerSrc) {
-            resolve(true)
-          } else {
-            const checkWorker = setInterval(() => {
-              if (pdfjs.GlobalWorkerOptions.workerSrc) {
-                clearInterval(checkWorker)
-                resolve(true)
-              }
-            }, 50)
-          }
-        })
-
         const response = await fetch(url)
-        const arrayBuffer = await response.arrayBuffer()
+        const blob = await response.blob()
+        const pdfjs = await import('pdfjs-dist')
         
-        const loadingTask = pdfjs.getDocument({
-          data: arrayBuffer,
-          cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/',
-          cMapPacked: true,
-          standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/standard_fonts/'
-        })
-        const pdf = await loadingTask.promise
+        // Configure worker
+        pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`
+
+        const pdf = await pdfjs.getDocument(URL.createObjectURL(blob)).promise
         const page = await pdf.getPage(1)
-        
-        const viewport = page.getViewport({ scale: 0.5 })
+        const viewport = page.getViewport({ scale: 1.5 })
+
+        // Create canvas
         const canvas = document.createElement('canvas')
         const context = canvas.getContext('2d')
-        
-        if (!context || !isMounted) return
-        
         canvas.height = viewport.height
         canvas.width = viewport.width
-        
+
+        if (!context) {
+          throw new Error('Could not get canvas context')
+        }
+
+        // Render PDF page to canvas
         await page.render({
           canvasContext: context,
           viewport: viewport
         }).promise
-        
+
         if (isMounted) {
           setPreviewUrl(canvas.toDataURL())
+          setIsPreviewLoading(false)
         }
       } catch (error) {
         console.error('Error generating PDF thumbnail:', error)
+        toast.error('Failed to generate PDF preview')
       } finally {
         if (isMounted) {
           setIsPreviewLoading(false)

@@ -3,132 +3,129 @@
 import { Layout } from '@/components/layout/Layout'
 import { MessageList } from '@/components/chat/MessageList'
 import { MessageInput } from '@/components/chat/MessageInput'
-import { useDirectMessages } from '@/hooks/useDirectMessages'
-import { useUsers } from '@/hooks/useUsers'
+import useStore from '@/store'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { NotificationBanner } from '@/components/shared/NotificationBanner'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { Loader2, Circle } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { use } from 'react'
-import { useUnreadCounts } from '@/hooks/useUnreadCounts'
-import { Message } from '@/types/messages'
-import { useUserPresence } from '@/hooks/useUserPresence'
+import { Message, DirectMessage } from '@/types/messages'
 
 interface PageProps {
-  params: Promise<{ userId: string }>
+  params: { userId: string }
 }
 
 export default function DMPage({ params }: PageProps) {
-  const { userId } = use(params)
-  const [error, setError] = useState<string | null>(null)
-  const { messages, loading: messagesLoading, sendMessage } = useDirectMessages(userId)
-  const { users, loading: usersLoading } = useUsers()
-  const { user: currentUser } = useCurrentUser()
-  const { markDmAsRead } = useUnreadCounts()
-  const { getUserStatus } = useUserPresence()
+  const [isLoading, setIsLoading] = useState(true)
+  const { messages, otherUser, currentUser, sendMessage } = useStore((state) => {
+    const dbMessages = state.messagesByChannel[params.userId] || []
+    return {
+      messages: dbMessages.map(msg => ({
+        id: msg.id,
+        content: msg.content,
+        created_at: msg.created_at || new Date().toISOString(),
+        thread_id: msg.thread_id || undefined,
+        file: msg.file_metadata ? {
+          id: msg.file_metadata.message_id,
+          url: msg.file_metadata.path,
+          name: msg.file_metadata.name,
+          type: msg.file_metadata.type,
+          size: msg.file_metadata.size
+        } : undefined,
+        type: 'dm' as const,
+        sender_id: msg.sender_id,
+        receiver_id: params.userId,
+        sender: {
+          username: msg.sender.username,
+          status: msg.sender.status,
+          profile_picture: msg.sender.profile_picture
+        }
+      })) as DirectMessage[],
+      otherUser: state.dmUsers.find(u => u.id === params.userId),
+      currentUser: state.currentUser,
+      sendMessage: state.sendMessage
+    }
+  })
 
   useEffect(() => {
-    if (userId && currentUser) {
-      markDmAsRead(userId)
+    const loadData = async () => {
+      setIsLoading(true)
+      if (!otherUser) {
+        const { data: users } = await createClient()
+          .from('users')
+          .select('*')
+          .eq('id', params.userId)
+          .single()
+        
+        if (users) {
+          useStore.getState().setDMUsers([...useStore.getState().dmUsers, users])
+        }
+      }
+      setIsLoading(false)
     }
-  }, [userId, currentUser, markDmAsRead])
+    loadData()
+  }, [params.userId, otherUser])
 
-  const otherUser = users.find(u => u.id === userId)
-  const supabase = createClient()
-
-  if (usersLoading || !otherUser) {
-    return null
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-full">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      </Layout>
+    )
   }
 
-  const handleSendMessage = async (
-    content: string,
-    fileMetadata?: { id: string; url: string; name: string; type: string; size: number }
-  ) => {
-    try {
-      if (!currentUser) {
-        setError('You must be logged in to send messages')
-        return
-      }
-
-      // If we have a file but no content, use the file name as content
-      const messageContent = content || (fileMetadata ? `Shared a file: ${fileMetadata.name}` : '')
-      
-      await sendMessage(messageContent, fileMetadata)
-    } catch (error) {
-      console.error('Error sending message:', error)
-      setError(error instanceof Error ? error.message : 'Failed to send message')
-    }
+  if (!otherUser) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-full">
+          <p>User not found</p>
+        </div>
+      </Layout>
+    )
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {error && (
-        <NotificationBanner
-          type="error"
-          message={error}
-          onClose={() => setError(null)}
-        />
-      )}
-
-      <div className="flex-none p-4 border-b border-gray-700">
-        <div className="flex items-center space-x-3">
-          <div className="flex-shrink-0">
-            {otherUser.profile_picture ? (
-              <img
-                src={otherUser.profile_picture}
-                alt={otherUser.username}
-                className="h-8 w-8 rounded-full"
-              />
-            ) : (
-              <div className="h-8 w-8 rounded-full bg-gray-600 flex items-center justify-center">
-                <span className="text-white">{otherUser.username[0]}</span>
-              </div>
-            )}
-          </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <h2 className="text-lg font-medium text-white">
-                {otherUser.username}
-              </h2>
-              <Circle className={cn(
-                'h-2 w-2',
-                getUserStatus(otherUser.id) === 'online' ? 'text-green-500' : 
-                getUserStatus(otherUser.id) === 'away' ? 'text-yellow-500' :
-                getUserStatus(otherUser.id) === 'busy' ? 'text-red-500' :
-                'text-gray-500'
-              )} />
+    <Layout>
+      <div className="flex flex-col h-full">
+        <div className="flex items-center p-4 border-b">
+          <div className="flex items-center space-x-2">
+            <div className="relative">
+              {otherUser.profile_picture ? (
+                <img
+                  src={otherUser.profile_picture}
+                  alt={otherUser.username}
+                  className="h-8 w-8 rounded-full"
+                />
+              ) : (
+                <div className="h-8 w-8 rounded-full bg-gray-600 flex items-center justify-center">
+                  <span className="text-white">{otherUser.username?.[0]?.toUpperCase() || '?'}</span>
+                </div>
+              )}
             </div>
-            <p className="text-sm text-gray-400 capitalize">
-              {getUserStatus(otherUser.id)}
-            </p>
+            <span className="font-medium">{otherUser.username}</span>
           </div>
         </div>
-      </div>
 
-      <div className="flex-1 min-h-0 flex flex-col">
-        {messagesLoading ? (
-          <div className="flex-1 flex items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-          </div>
-        ) : (
-          <div className="flex-1 min-h-0">
-            <MessageList
-              messages={messages as Message[]}
-              type="dm"
-            />
-          </div>
-        )}
+        <div className="flex-1 overflow-y-auto">
+          <MessageList messages={messages} />
+        </div>
 
-        <div className="flex-none p-4 border-t border-gray-700">
-          <MessageInput
-            onSend={handleSendMessage}
-            dmUserId={userId}
-            placeholder={`Message ${otherUser.username}`}
+        <div className="p-4 border-t">
+          <MessageInput 
+            onSend={async (content, fileMetadata) => {
+              try {
+                await sendMessage(content, params.userId, fileMetadata)
+              } catch (error) {
+                console.error('Error sending message:', error)
+              }
+            }}
+            dmUserId={params.userId}
+            placeholder={`Message ${otherUser?.username}`}
           />
         </div>
       </div>
-    </div>
+    </Layout>
   )
 } 

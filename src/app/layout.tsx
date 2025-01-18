@@ -5,7 +5,6 @@ import "./globals.css";
 import { Toaster } from 'sonner'
 import { Providers } from '@/components/providers/Providers'
 import { Sidebar } from '@/components/layout/Sidebar'
-import { UnreadCountsProvider } from '@/components/providers/UnreadCountsProvider'
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -24,14 +23,12 @@ export default function RootLayout({
       <body className={inter.className}>
         <AuthProvider>
           <Providers>
-            <UnreadCountsProvider>
-              <div className="flex h-screen">
-                <Sidebar />
-                <main className="flex-1 overflow-y-auto bg-gray-900">
-                  {children}
-                </main>
-              </div>
-            </UnreadCountsProvider>
+            <div className="flex h-screen">
+              <Sidebar />
+              <main className="flex-1 overflow-y-auto bg-gray-900">
+                {children}
+              </main>
+            </div>
           </Providers>
         </AuthProvider>
         <Toaster theme="dark" position="top-center" />

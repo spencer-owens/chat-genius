@@ -2,11 +2,11 @@
 
 import { useState } from 'react'
 import { ChevronDown, ChevronUp, AlertCircle } from 'lucide-react'
-import { useAI } from '@/contexts/AIContext'
+import useStore from '@/store'
 
 export default function AIResponse() {
   const [showSources, setShowSources] = useState(false)
-  const { response, error, isLoading } = useAI()
+  const { aiResponse: response, aiError: error, aiLoading: isLoading } = useStore()
 
   if (error) {
     return (

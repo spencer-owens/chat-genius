@@ -1,28 +1,32 @@
 import { Plus, Hash, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import useStore from '@/store'
+import { Database } from '@/types/supabase'
 
-interface Channel {
-  id: string
-  name: string
-  description: string
-  is_private: boolean
+type Tables = Database['public']['Tables']
+type Channel = Tables['channels']['Row'] & {
+  memberships: Array<{
+    user_id: string
+    is_admin: boolean
+  }>
 }
 
 interface ChannelListProps {
-  channels: Channel[]
   currentChannelId?: string
   onChannelSelect: (channelId: string) => void
   onCreateChannel?: () => void
-  isAdmin?: boolean
 }
 
 export function ChannelList({
-  channels,
   currentChannelId,
   onChannelSelect,
-  onCreateChannel,
-  isAdmin
+  onCreateChannel
 }: ChannelListProps) {
+  const { channels, currentUser } = useStore()
+  const isAdmin = channels.find(c => c.id === currentChannelId)?.memberships.some(
+    m => m.user_id === currentUser?.id && m.is_admin
+  )
+
   return (
     <div className="space-y-2 px-2 py-4">
       <div className="flex items-center justify-between px-2">

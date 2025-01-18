@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import useStore from '@/store'
 
 export function useChannels() {
-  const [channels, setChannels] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
+  const { 
+    channels,
+    setChannels,
+    initializeSubscriptions
+  } = useStore()
   const supabase = createClient()
 
   useEffect(() => {
@@ -24,29 +27,18 @@ export function useChannels() {
         if (error) throw error
         setChannels(data || [])
       } catch (e) {
-        setError(e as Error)
-      } finally {
-        setLoading(false)
+        console.error('Error fetching channels:', e)
       }
     }
 
     fetchChannels()
-
-    // Set up real-time subscription
-    const channelsSubscription = supabase
-      .channel('channels')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'channels' },
-        (payload) => {
-          console.log('Channels change received:', payload)
-          fetchChannels() // Refetch channels when changes occur
-      })
-      .subscribe()
-
-    return () => {
-      channelsSubscription.unsubscribe()
-    }
+    const cleanup = initializeSubscriptions()
+    
+    return cleanup
   }, [])
 
-  return { channels, loading, error }
+  return { 
+    channels, 
+    loading: false // Loading state is now handled by the store
+  }
 } 

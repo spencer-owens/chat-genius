@@ -1,10 +1,11 @@
 import { cn } from '@/lib/utils'
-
-type Status = 'online' | 'offline' | 'away' | 'busy'
+import { Status } from '@/types/status'
+import useStore from '@/store'
 
 interface UserPresenceIndicatorProps {
-  status: Status
+  userId: string
   className?: string
+  showLabel?: boolean
 }
 
 const statusColors: Record<Status, string> = {
@@ -15,16 +16,22 @@ const statusColors: Record<Status, string> = {
 }
 
 export function UserPresenceIndicator({ 
-  status, 
-  className 
+  userId,
+  className,
+  showLabel = true
 }: UserPresenceIndicatorProps) {
+  const { userPresence } = useStore()
+  const status = userPresence[userId] || 'offline'
+
   return (
     <div className={cn('flex items-center gap-2', className)}>
       <div className={cn(
         'h-2.5 w-2.5 rounded-full',
         statusColors[status]
       )} />
-      <span className="text-sm text-gray-500 capitalize">{status}</span>
+      {showLabel && (
+        <span className="text-sm text-gray-500 capitalize">{status}</span>
+      )}
     </div>
   )
 } 

@@ -15,29 +15,31 @@ import {
 } from 'lucide-react'
 import { ExpandableNavItem } from './ExpandableNavItem'
 import { SearchBar } from '../shared/SearchBar'
-import { useChannels } from '@/hooks/useChannels'
-import { useDirectMessages } from '@/hooks/useDirectMessages'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { SkeletonLoader } from '../shared/SkeletonLoader'
-import { useUnreadCountsContext } from '@/components/providers/UnreadCountsProvider'
 import { ChannelLink } from '../channels/ChannelLink'
-import { useDMUsers } from '@/hooks/useDMUsers'
 import { ReactNode, useCallback } from 'react'
-import { useUserPresence } from '@/hooks/useUserPresence'
+import useStore from '@/store'
+import { Status } from '@/types/status'
+import { Database } from '@/types/supabase'
+import { User } from '@supabase/supabase-js'
 
-type Status = 'online' | 'offline' | 'away'
-
-interface User {
+type Tables = Database['public']['Tables']
+type DMUser = {
   id: string
   username: string
-  profile_picture?: string
   status: Status
+  profile_picture: string | null
+  email: string
+  created_at: string | null
+  updated_at: string | null
+  is_verified: boolean | null
 }
 
 const statusColors: Record<Status, string> = {
   online: 'bg-green-500',
   offline: 'bg-gray-500',
-  away: 'bg-yellow-500'
+  away: 'bg-yellow-500',
+  busy: 'bg-red-500'
 } as const
 
 interface Channel {
@@ -75,14 +77,20 @@ const bottomNavItems = [
 
 export function Sidebar() {
   const pathname = usePathname()
-  const { channels, loading: channelsLoading } = useChannels()
-  const { user } = useCurrentUser()
-  const { channelUnreadCounts, dmUnreadCounts, markChannelAsRead, markDmAsRead } = useUnreadCountsContext()
-  const { users: dmUsers, loading: dmUsersLoading } = useDMUsers()
-  const { updateStatus, getUserStatus } = useUserPresence()
+  const { 
+    currentUser,
+    channels,
+    dmUsers,
+    userPresence,
+    setUserPresence,
+    channelUnreadCounts,
+    dmUnreadCounts,
+    markChannelAsRead,
+    markDmAsRead
+  } = useStore()
 
   const markAllAsRead = useCallback(async () => {
-    if (!user) return
+    if (!currentUser) return
 
     // Mark all channels as read
     await Promise.all(
@@ -97,7 +105,7 @@ export function Sidebar() {
         .filter(userId => dmUnreadCounts[userId]?.count > 0)
         .map(userId => markDmAsRead(userId))
     )
-  }, [user, channelUnreadCounts, dmUnreadCounts, markChannelAsRead, markDmAsRead])
+  }, [currentUser, channelUnreadCounts, dmUnreadCounts, markChannelAsRead, markDmAsRead])
 
   const handleSearch = (query: string) => {
     // Implement search functionality
@@ -112,10 +120,19 @@ export function Sidebar() {
   const publicChannels = channels.filter(c => !c.is_private)
   const privateChannels = channels.filter(c => c.is_private)
   const userPrivateChannels = privateChannels.filter(
-    c => c.memberships?.some((m: { user_id: string }) => m.user_id === user?.id)
+    c => c.memberships?.some((m: { user_id: string }) => m.user_id === currentUser?.id)
   )
 
   const totalUnreadDMs = Object.values(dmUnreadCounts).reduce((a, b) => a + (b?.count || 0), 0)
+
+  const updateStatus = useCallback((status: Status) => {
+    if (!currentUser?.id) return
+    setUserPresence(currentUser.id, status)
+  }, [currentUser, setUserPresence])
+
+  const getUserStatus = useCallback((userId: string): Status => {
+    return userPresence[userId] || 'offline'
+  }, [userPresence])
 
   return (
     <div className="flex h-full w-64 flex-col bg-gray-900">
@@ -168,7 +185,7 @@ export function Sidebar() {
           isActive={pathname === '/channels'}
           storageKey="sidebar-channels-expanded"
         >
-          {channelsLoading ? (
+          {!channels.length ? (
             <div className="space-y-2 px-2">
               <SkeletonLoader className="h-6 w-full" />
               <SkeletonLoader className="h-6 w-3/4" />
@@ -232,7 +249,7 @@ export function Sidebar() {
           isActive={pathname === '/dm'}
           storageKey="sidebar-dms-expanded"
         >
-          {dmUsersLoading ? (
+          {!dmUsers.length ? (
             <div className="space-y-2 px-2">
               <SkeletonLoader className="h-6 w-full" />
               <SkeletonLoader className="h-6 w-3/4" />
@@ -290,28 +307,30 @@ export function Sidebar() {
       </nav>
 
       {/* User Profile Section */}
-      {user && (
+      {currentUser && (
         <div className="flex-none p-4 border-t border-gray-700">
           <div className="flex items-center space-x-3">
             <div className="relative flex-shrink-0 group">
               {/* Invisible extended hover area */}
               <div className="absolute -inset-2" />
               
-              {user.profile_picture ? (
+              {currentUser.user_metadata?.profile_picture ? (
                 <img
-                  src={user.profile_picture}
-                  alt={user.username}
+                  src={currentUser.user_metadata.profile_picture}
+                  alt={currentUser.user_metadata?.username || currentUser.email}
                   className="h-8 w-8 rounded-full cursor-pointer relative"
                 />
               ) : (
                 <div className="h-8 w-8 rounded-full bg-gray-600 flex items-center justify-center cursor-pointer relative">
-                  <span className="text-white">{user.username[0]}</span>
+                  <span className="text-white">
+                    {(currentUser.user_metadata?.username || currentUser.email || '?')[0]}
+                  </span>
                 </div>
               )}
               <div className="absolute -bottom-0.5 -right-0.5">
                 <div className={cn(
                   'h-3 w-3 rounded-full border-2 border-gray-900 cursor-pointer relative',
-                  statusColors[getUserStatus(user.id)]
+                  statusColors[getUserStatus(currentUser.id)]
                 )} />
               </div>
 
@@ -328,7 +347,7 @@ export function Sidebar() {
                     onClick={() => updateStatus(status as Status)}
                     className={cn(
                       'w-full px-4 py-2 text-sm text-left text-gray-300 hover:bg-gray-700 flex items-center space-x-2',
-                      getUserStatus(user.id) === status && 'bg-gray-700'
+                      getUserStatus(currentUser.id) === status && 'bg-gray-700'
                     )}
                   >
                     <div className={cn('h-2 w-2 rounded-full', statusColors[status as Status])} />
@@ -339,10 +358,10 @@ export function Sidebar() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-white truncate">
-                {user.username}
+                {currentUser.user_metadata?.username || currentUser.email}
               </p>
               <p className="text-xs text-gray-400 capitalize">
-                {getUserStatus(user.id)}
+                {getUserStatus(currentUser.id)}
               </p>
             </div>
           </div>

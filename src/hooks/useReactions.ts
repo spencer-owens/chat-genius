@@ -1,10 +1,12 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useCurrentUser } from './useCurrentUser'
+import useStore from '@/store'
+import { Database } from '@/types/supabase'
 import { toast } from 'sonner'
 import { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 
-const supabase = createClient()
+type Tables = Database['public']['Tables']
+type Enums = Database['public']['Enums']
 
 // Cache reactions for 30 seconds
 const reactionCache = new Map<string, { data: GroupedReaction[], timestamp: number }>()
@@ -19,16 +21,8 @@ const getDbMessageType = (type: MessageType): 'channel' | 'direct' => {
 
 export const AVAILABLE_REACTIONS: ReactionEmoji[] = ['👍', '❤️', '😄', '🎉', '🤔', '👀']
 
-interface Reaction {
-  id: string
-  message_id: string
-  user_id: string
-  emoji: ReactionEmoji
-  message_type: 'channel' | 'direct'
-  created_at: string
-  user: {
-    username: string
-  }
+type Reaction = Tables['reactions']['Row'] & {
+  user: Pick<Tables['users']['Row'], 'username'>
 }
 
 interface GroupedReaction {
@@ -44,10 +38,11 @@ type ReactionPayload = RealtimePostgresChangesPayload<{
 export function useReactions(messageId: string, messageType: MessageType) {
   const [reactions, setReactions] = useState<GroupedReaction[]>([])
   const [loading, setLoading] = useState(true)
-  const { user } = useCurrentUser()
+  const { currentUser, messagesByChannel, updateMessage } = useStore()
   const mountedRef = useRef(true)
   const dbMessageType = useMemo(() => getDbMessageType(messageType), [messageType])
   const fetchingRef = useRef(false)
+  const supabase = createClient()
 
   // Skip fetching reactions for optimistic messages
   const shouldFetchReactions = useMemo(() => {
@@ -59,13 +54,13 @@ export function useReactions(messageId: string, messageType: MessageType) {
     const grouped = new Map<ReactionEmoji, GroupedReaction>()
     
     for (const reaction of reactions) {
-      const existing = grouped.get(reaction.emoji)
+      const existing = grouped.get(reaction.emoji as ReactionEmoji)
       if (existing) {
         existing.count++
         existing.users.push({ id: reaction.user_id, username: reaction.user.username })
       } else {
-        grouped.set(reaction.emoji, {
-          emoji: reaction.emoji,
+        grouped.set(reaction.emoji as ReactionEmoji, {
+          emoji: reaction.emoji as ReactionEmoji,
           count: 1,
           users: [{ id: reaction.user_id, username: reaction.user.username }]
         })
@@ -93,7 +88,7 @@ export function useReactions(messageId: string, messageType: MessageType) {
           }
         } else {
           updated.push({
-            emoji: newReaction.emoji,
+            emoji: newReaction.emoji as ReactionEmoji,
             count: 1,
             users: [{
               id: newReaction.user_id,
@@ -113,22 +108,40 @@ export function useReactions(messageId: string, messageType: MessageType) {
       
       return updated
     })
-  }, [])
+
+    // Update message reactions in the store if it's a channel message
+    if (messageType === 'channel') {
+      const channelId = messageId.split('-')[0]
+      const message = messagesByChannel[channelId]?.find(m => m.id === messageId)
+      if (message) {
+        const updatedMessage = {
+          ...message,
+          reactions: type === 'add' 
+            ? [...(message.reactions || []), newReaction]
+            : (message.reactions || []).filter(r => r.id !== newReaction.id)
+        }
+        updateMessage(channelId, updatedMessage)
+      }
+    }
+  }, [messageType, messageId, messagesByChannel, updateMessage])
 
   const addReaction = useCallback(async (emoji: ReactionEmoji) => {
-    if (!user || messageId.startsWith('temp-')) return
+    if (!currentUser?.id || messageId.startsWith('temp-')) {
+      toast.error('Cannot add reaction at this time')
+      return
+    }
 
     try {
       // Add optimistic reaction
       const optimisticReaction: Reaction = {
         id: `temp-${Date.now()}`,
         message_id: messageId,
-        user_id: user.id,
+        user_id: currentUser.id,
         emoji,
         message_type: dbMessageType,
         created_at: new Date().toISOString(),
         user: {
-          username: user.username || ''
+          username: currentUser.user_metadata?.username || ''
         }
       }
 
@@ -139,7 +152,7 @@ export function useReactions(messageId: string, messageType: MessageType) {
         .select('id')
         .eq('message_id', messageId)
         .eq('message_type', dbMessageType)
-        .eq('user_id', user.id)
+        .eq('user_id', currentUser.id)
         .eq('emoji', emoji)
         .single()
 
@@ -153,7 +166,7 @@ export function useReactions(messageId: string, messageType: MessageType) {
         .from('reactions')
         .insert({
           message_id: messageId,
-          user_id: user.id,
+          user_id: currentUser.id,
           emoji,
           message_type: dbMessageType
         })
@@ -171,7 +184,7 @@ export function useReactions(messageId: string, messageType: MessageType) {
       console.error('Error adding reaction:', error)
       toast.error('Failed to add reaction. Please try again.')
     }
-  }, [user, messageId, dbMessageType, updateReactionsState])
+  }, [currentUser, messageId, dbMessageType, updateReactionsState])
 
   useEffect(() => {
     if (!shouldFetchReactions) {
@@ -244,6 +257,7 @@ export function useReactions(messageId: string, messageType: MessageType) {
         if (mountedRef.current) {
           setLoading(false)
           setReactions([])
+          toast.error('Failed to load reactions')
         }
       } finally {
         fetchingRef.current = false
@@ -253,42 +267,27 @@ export function useReactions(messageId: string, messageType: MessageType) {
     fetchReactions()
 
     // Subscribe to reaction changes
-    const channel = supabase.channel(`reactions-${messageId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'reactions',
-          filter: `message_id=eq.${messageId} AND message_type=eq.${dbMessageType}`
-        },
-        (payload: ReactionPayload) => {
-          if (!mountedRef.current) return
+    const subscription = supabase
+      .channel(`reactions:${messageId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'reactions',
+        filter: `message_id=eq.${messageId}`
+      }, async (payload: ReactionPayload) => {
+        if (!mountedRef.current) return
 
-          if (payload.eventType === 'INSERT' || payload.eventType === 'DELETE') {
-            const reaction = (payload.new || payload.old) as Reaction
-            if (!reaction) return
-
-            // Update cache
-            const cacheKey = `${messageId}:${dbMessageType}`
-            reactionCache.delete(cacheKey)
-
-            // Use the reaction data directly from the payload
-            updateReactionsState(
-              reaction,
-              payload.eventType === 'INSERT' ? 'add' : 'remove'
-            )
-          }
-        }
-      )
+        // Refetch reactions to ensure consistency
+        fetchReactions()
+      })
       .subscribe()
 
     return () => {
       mountedRef.current = false
       abortController.abort()
-      supabase.removeChannel(channel)
+      subscription.unsubscribe()
     }
-  }, [messageId, dbMessageType, groupReactions, updateReactionsState, shouldFetchReactions])
+  }, [messageId, dbMessageType, shouldFetchReactions, groupReactions])
 
   return {
     reactions,

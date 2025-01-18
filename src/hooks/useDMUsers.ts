@@ -1,19 +1,34 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useCurrentUser } from '@/hooks/useCurrentUser'
+import useStore from '@/store'
+import { toast } from 'sonner'
+import { Database } from '@/types/supabase'
+
+type Tables = Database['public']['Tables']
+type Enums = Database['public']['Enums']
+
+type DMUser = {
+  id: string
+  username: string
+  status: Enums['user_status']
+  profile_picture: string | null
+  email: string
+  created_at: string | null
+  updated_at: string | null
+  is_verified: boolean | null
+}
 
 export function useDMUsers() {
-  const [users, setUsers] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const { user: currentUser } = useCurrentUser()
+  const { currentUser, dmUsers, setDMUsers } = useStore()
   const supabase = createClient()
 
   useEffect(() => {
-    if (!currentUser) {
-      setUsers([])
-      setLoading(false)
+    if (!currentUser?.id) {
+      setDMUsers([])
       return
     }
+
+    const userId = currentUser.id
 
     async function fetchDMUsers() {
       try {
@@ -24,36 +39,62 @@ export function useDMUsers() {
               id, 
               username, 
               status, 
-              profile_picture
+              profile_picture,
+              email,
+              created_at,
+              updated_at,
+              is_verified
             ),
             receiver:users!receiver_id(
               id, 
               username, 
               status, 
-              profile_picture
+              profile_picture,
+              email,
+              created_at,
+              updated_at,
+              is_verified
             )
           `)
-          .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`)
+          .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
 
-        if (error) throw error
+        if (error) {
+          toast.error('Failed to fetch DM users')
+          throw error
+        }
 
         // Extract unique users excluding current user
-        const uniqueUsers = new Map()
+        const uniqueUsers = new Map<string, DMUser>()
         data?.forEach(msg => {
-          const otherUser = msg.sender.id === currentUser.id ? msg.receiver : msg.sender
-          uniqueUsers.set(otherUser.id, otherUser)
+          const otherUser = msg.sender.id === userId ? msg.receiver : msg.sender
+          uniqueUsers.set(otherUser.id, otherUser as DMUser)
         })
 
-        setUsers(Array.from(uniqueUsers.values()))
+        setDMUsers(Array.from(uniqueUsers.values()))
       } catch (error) {
         console.error('Error fetching DM users:', error)
-      } finally {
-        setLoading(false)
       }
     }
 
     fetchDMUsers()
-  }, [currentUser])
 
-  return { users, loading }
+    // Subscribe to changes in direct_messages table
+    const subscription = supabase
+      .channel('direct_messages_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'direct_messages'
+      }, () => {
+        // Refetch DM users when there are changes
+        fetchDMUsers()
+      })
+      .subscribe()
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [currentUser, setDMUsers])
+
+  return { users: dmUsers || [], loading: false }
 } 

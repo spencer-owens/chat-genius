@@ -1,8 +1,11 @@
-import { MessageList } from './MessageList'
+'use client'
+
+import MessageList from './MessageList'
 import { MessageInput } from './MessageInput'
 import { X, Loader2 } from 'lucide-react'
 import { useThreadReplies } from '@/hooks/useThreadReplies'
 import { ChannelMessage } from '@/types/messages'
+import { createClient } from '@/lib/supabase/client'
 
 interface MessageThreadProps {
   parentMessage: ChannelMessage
@@ -14,6 +17,7 @@ export function MessageThread({
   onClose
 }: MessageThreadProps) {
   const { replies, loading, error, sendReply } = useThreadReplies(parentMessage.id)
+  const supabase = createClient()
 
   const handleSendReply = async (
     content: string,
@@ -48,7 +52,8 @@ export function MessageThread({
           <div className="flex-1 h-full flex flex-col justify-end">
             <MessageList
               messages={[parentMessage, ...replies]}
-              type="channel"
+              threadId={parentMessage.id}
+              channelId={parentMessage.channel_id}
             />
           </div>
         )}

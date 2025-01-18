@@ -1,20 +1,19 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useCurrentUser } from './useCurrentUser'
+import useStore from '@/store'
 import { toast } from 'sonner'
+import { Database } from '@/types/supabase'
+import { Status } from '@/types/status'
 
-interface DirectMessage {
-  id: string
-  content: string
-  created_at: string
-  sender_id: string
-  receiver_id: string
-  sender: {
-    username: string
-    status: string
-    profile_picture?: string
-  }
-  type: 'dm'
+type Tables = Database['public']['Tables']
+type DirectMessageRow = Tables['direct_messages']['Row']
+type UserRow = Tables['users']['Row']
+type FileMetadataRow = Tables['file_metadata']['Row']
+type ReactionRow = Tables['reactions']['Row']
+
+type Message = Tables['messages']['Row'] & {
+  sender: Tables['users']['Row']
+  reactions: Tables['reactions']['Row'][]
   file?: {
     id: string
     url: string
@@ -24,157 +23,42 @@ interface DirectMessage {
   }
 }
 
-export function useDirectMessages(otherUserId: string | null) {
-  const [messages, setMessages] = useState<DirectMessage[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
-  const { user: currentUser } = useCurrentUser()
-  const supabase = createClient()
-  const messagesRef = useRef<DirectMessage[]>([])
+const supabase = createClient()
 
-  // Update ref whenever messages change
-  useEffect(() => {
-    messagesRef.current = messages
-  }, [messages])
-
-  // Debug function
-  const logWithTime = (message: string, data?: any) => {
-    console.log(`[${new Date().toISOString()}] ${message}`, data || '')
-  }
-
-  const sendMessage = useCallback(async (
-    content: string,
-    fileMetadata?: { id: string; url: string; name: string; type: string; size: number }
-  ) => {
-    if (!currentUser || !otherUserId) {
-      throw new Error('Must be logged in to send messages')
-    }
-
-    // Create optimistic message
-    const optimisticId = `temp-${Date.now()}`
-    const newMessage = {
-      id: optimisticId,
-      content,
-      sender_id: currentUser.id,
-      receiver_id: otherUserId,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      file_id: fileMetadata?.id,
-      type: 'dm' as const,
-      sender: {
-        id: currentUser.id,
-        username: currentUser.username,
-        status: currentUser.status,
-        profile_picture: currentUser.profile_picture
-      },
-      file: fileMetadata
-    }
-
-    logWithTime('Adding optimistic message:', newMessage)
-
-    // Add optimistic message to state
-    setMessages(prev => [...prev, newMessage])
-
-    try {
-      // Send the message
-      const { data, error: sendError } = await supabase
-        .from('direct_messages')
-        .insert([{
-          content,
-          sender_id: currentUser.id,
-          receiver_id: otherUserId,
-          file_id: fileMetadata?.id
-        }])
-        .select(`
-          *,
-          sender:users!sender_id(
-            id,
-            username,
-            status,
-            profile_picture
-          ),
-          file:file_metadata(
-            id,
-            name,
-            type,
-            size,
-            path
-          )
-        `)
-        .single()
-
-      if (sendError) throw sendError
-
-      // Replace optimistic message with real one
-      setMessages(prev => 
-        prev.map(msg => 
-          msg.id === optimisticId ? {
-            ...data,
-            type: 'dm' as const,
-            file: data.file ? {
-              ...data.file,
-              url: supabase.storage.from('public-documents').getPublicUrl(data.file.path).data.publicUrl
-            } : undefined
-          } : msg
-        )
-      )
-
-      logWithTime('Message sent successfully:', data)
-    } catch (error) {
-      logWithTime('Error sending message:', error)
-      
-      // Remove optimistic message on error
-      setMessages(prev => prev.filter(msg => msg.id !== optimisticId))
-      
-      // Show error to user
-      toast.error('Failed to send message. Please try again.')
-      
-      throw error
-    }
-  }, [currentUser, otherUserId])
-
-  // Deduplicate messages in state
-  const deduplicateMessages = useCallback((messages: DirectMessage[]) => {
-    const seen = new Set()
-    return messages.filter(msg => {
-      if (seen.has(msg.id)) return false
-      seen.add(msg.id)
-      return true
-    })
-  }, [])
-
-  // Update messages state with deduplication
-  const updateMessages = useCallback((newMessages: DirectMessage[]) => {
-    setMessages(prev => deduplicateMessages([...prev, ...newMessages]))
-  }, [deduplicateMessages])
+export function useDirectMessages(userId: string | null) {
+  const { currentUser, messagesByChannel, setChannelMessages, addMessage, updateMessage, removeMessage } = useStore()
 
   useEffect(() => {
-    if (!otherUserId || !currentUser) {
-      setMessages([])
-      setLoading(false)
-      return
-    }
+    if (!currentUser?.id || !userId) return
 
-    logWithTime('Setting up DM hook', { currentUser: currentUser.id, otherUser: otherUserId })
+    const channelKey = `dm:${userId}`
+    const currentUserId = currentUser.id
 
     async function fetchMessages() {
       try {
-        logWithTime('Fetching messages')
-        if (!currentUser) {
-          throw new Error('User must be logged in to fetch messages')
-        }
-        
-        const { data, error } = await supabase
+        const { data: messagesData, error } = await supabase
           .from('direct_messages')
           .select(`
             *,
             sender:users!sender_id(
               id,
               username,
+              email,
               status,
-              profile_picture
+              profile_picture,
+              created_at,
+              updated_at,
+              is_verified
             ),
-            file:file_metadata(
+            reactions:reactions!message_id(
+              id,
+              user_id,
+              emoji,
+              created_at,
+              message_id,
+              message_type
+            ),
+            file:file_metadata!file_id(
               id,
               name,
               type,
@@ -182,90 +66,78 @@ export function useDirectMessages(otherUserId: string | null) {
               path
             )
           `)
-          .or(
-            `and(sender_id.eq.${currentUser.id},receiver_id.eq.${otherUserId}),` +
-            `and(sender_id.eq.${otherUserId},receiver_id.eq.${currentUser.id})`
-          )
+          .or(`and(sender_id.eq.${currentUserId},receiver_id.eq.${userId}),and(sender_id.eq.${userId},receiver_id.eq.${currentUserId})`)
           .order('created_at', { ascending: true })
 
         if (error) throw error
-
-        logWithTime('Messages fetched', { count: data?.length })
-
-        const formattedMessages: DirectMessage[] = (data || []).map(msg => ({
-          ...msg,
-          type: 'dm',
-          file: msg.file ? {
-            ...msg.file,
-            url: supabase.storage.from('public-documents').getPublicUrl(msg.file.path).data.publicUrl
-          } : undefined
-        }))
-
-        setMessages(formattedMessages)
-      } catch (e) {
-        setError(e as Error)
-        console.error('Error fetching messages:', e)
-        toast.error('Error loading messages. Please refresh the page.')
-      } finally {
-        setLoading(false)
+        if (messagesData) {
+          const messages = messagesData.map(msg => ({
+            id: msg.id,
+            content: msg.content,
+            created_at: msg.created_at,
+            updated_at: msg.updated_at,
+            thread_id: msg.thread_id,
+            file_id: msg.file_id,
+            sender_id: msg.sender_id,
+            channel_id: null,
+            reply_count: null,
+            sender: msg.sender,
+            reactions: Array.isArray(msg.reactions) ? msg.reactions : [],
+            file: msg.file ? {
+              id: msg.file.id,
+              name: msg.file.name,
+              type: msg.file.type,
+              size: msg.file.size,
+              url: supabase.storage.from('public-documents').getPublicUrl(msg.file.path).data.publicUrl
+            } : undefined
+          })) as Message[]
+          
+          setChannelMessages(channelKey, messages)
+        }
+      } catch (error) {
+        console.error('Error fetching direct messages:', error)
+        toast.error('Failed to load messages')
       }
     }
 
     fetchMessages()
 
-    // Subscribe to new messages with simpler channel naming
-    const channelName = `direct_messages_${currentUser.id}_${otherUserId}`
-    logWithTime('Creating channel', { channelName })
-
     const channel = supabase
-      .channel(channelName)
+      .channel('direct_messages')
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',  // Focus on inserts only for now
+          event: '*',
           schema: 'public',
           table: 'direct_messages',
-          filter: `sender_id=eq.${otherUserId}`  // Only listen for messages from the other user
+          filter: `or(and(sender_id.eq.${currentUserId},receiver_id.eq.${userId}),and(sender_id.eq.${userId},receiver_id.eq.${currentUserId}))`
         },
-        async (payload: any) => {
-          logWithTime('Received DM payload', { payload })
-
-          const newMessage = payload.new
-          
-          // Don't process if we already have this message
-          const isDuplicate = messagesRef.current.some(msg => msg.id === newMessage.id)
-          if (isDuplicate) {
-            logWithTime('Skipping duplicate message', newMessage)
-            return
-          }
-
-          // Create a temporary message immediately
-          const tempMessage: DirectMessage = {
-            ...newMessage,
-            type: 'dm',
-            sender: {
-              username: 'Loading...',
-              status: 'online',
-            },
-            file: undefined
-          }
-          
-          logWithTime('Adding temporary message to state', tempMessage)
-          setMessages(prev => [...prev, tempMessage])
-
-          try {
-            // Fetch the complete message with all relations
-            const { data: messageData, error: messageError } = await supabase
+        async (payload) => {
+          if (payload.eventType === 'INSERT' && payload.new) {
+            // Fetch full message data with relations
+            const { data: messageData, error } = await supabase
               .from('direct_messages')
               .select(`
                 *,
                 sender:users!sender_id(
                   id,
                   username,
+                  email,
                   status,
-                  profile_picture
+                  profile_picture,
+                  created_at,
+                  updated_at,
+                  is_verified
                 ),
-                file:file_metadata(
+                reactions:reactions!message_id(
+                  id,
+                  user_id,
+                  emoji,
+                  created_at,
+                  message_id,
+                  message_type
+                ),
+                file:file_metadata!file_id(
                   id,
                   name,
                   type,
@@ -273,61 +145,112 @@ export function useDirectMessages(otherUserId: string | null) {
                   path
                 )
               `)
-              .eq('id', newMessage.id)
+              .eq('id', payload.new.id)
               .single()
 
-            if (messageError) throw messageError
-
-            const formattedMessage: DirectMessage = {
-              ...messageData,
-              type: 'dm',
-              file: messageData.file ? {
-                ...messageData.file,
-                url: supabase.storage.from('public-documents').getPublicUrl(messageData.file.path).data.publicUrl
-              } : undefined
+            if (!error && messageData) {
+              const message = {
+                id: messageData.id,
+                content: messageData.content,
+                created_at: messageData.created_at,
+                updated_at: messageData.updated_at,
+                thread_id: messageData.thread_id,
+                file_id: messageData.file_id,
+                sender_id: messageData.sender_id,
+                channel_id: null,
+                reply_count: null,
+                sender: messageData.sender,
+                reactions: Array.isArray(messageData.reactions) ? messageData.reactions : [],
+                file: messageData.file ? {
+                  id: messageData.file.id,
+                  name: messageData.file.name,
+                  type: messageData.file.type,
+                  size: messageData.file.size,
+                  url: supabase.storage.from('public-documents').getPublicUrl(messageData.file.path).data.publicUrl
+                } : undefined
+              } as Message
+              
+              addMessage(channelKey, message)
             }
+          } else if (payload.eventType === 'UPDATE' && payload.new) {
+            // Fetch updated message data with relations
+            const { data: messageData, error } = await supabase
+              .from('direct_messages')
+              .select(`
+                *,
+                sender:users!sender_id(
+                  id,
+                  username,
+                  email,
+                  status,
+                  profile_picture,
+                  created_at,
+                  updated_at,
+                  is_verified
+                ),
+                reactions:reactions!message_id(
+                  id,
+                  user_id,
+                  emoji,
+                  created_at,
+                  message_id,
+                  message_type
+                ),
+                file:file_metadata!file_id(
+                  id,
+                  name,
+                  type,
+                  size,
+                  path
+                )
+              `)
+              .eq('id', payload.new.id)
+              .single()
 
-            logWithTime('Updating message with complete data', formattedMessage)
-            
-            setMessages(prev => prev.map(msg => 
-              msg.id === newMessage.id ? formattedMessage : msg
-            ))
-          } catch (error) {
-            console.error('Error fetching complete message:', error)
-            toast.error('Error receiving new message')
+            if (!error && messageData) {
+              const message = {
+                id: messageData.id,
+                content: messageData.content,
+                created_at: messageData.created_at,
+                updated_at: messageData.updated_at,
+                thread_id: messageData.thread_id,
+                file_id: messageData.file_id,
+                sender_id: messageData.sender_id,
+                channel_id: null,
+                reply_count: null,
+                sender: messageData.sender,
+                reactions: Array.isArray(messageData.reactions) ? messageData.reactions : [],
+                file: messageData.file ? {
+                  id: messageData.file.id,
+                  name: messageData.file.name,
+                  type: messageData.file.type,
+                  size: messageData.file.size,
+                  url: supabase.storage.from('public-documents').getPublicUrl(messageData.file.path).data.publicUrl
+                } : undefined
+              } as Message
+              
+              updateMessage(channelKey, message)
+            }
+          } else if (payload.eventType === 'DELETE' && payload.old?.id) {
+            removeMessage(channelKey, payload.old.id)
           }
         }
       )
-      .subscribe(async (status, err) => {
-        logWithTime('Subscription status changed', { status, error: err })
-        
+      .subscribe((status, err) => {
         if (err) {
-          console.error('Subscription error:', err)
-          toast.error('Lost connection to chat. Reconnecting...')
-          
-          // Attempt to reconnect
-          try {
-            await channel.unsubscribe()
-            await channel.subscribe()
-          } catch (reconnectError) {
-            console.error('Reconnection failed:', reconnectError)
-            toast.error('Failed to reconnect. Please refresh the page.')
-          }
-        } else if (status === 'SUBSCRIBED') {
-          logWithTime('Successfully subscribed to DM channel')
+          console.error('Error subscribing to direct messages:', err)
+          toast.error('Lost connection to messages')
         }
       })
 
     return () => {
-      logWithTime('Cleaning up subscription', { channelName })
-      supabase.removeChannel(channel)
+      channel.unsubscribe()
     }
-  }, [currentUser, otherUserId])
+  }, [userId, currentUser?.id, setChannelMessages, addMessage, updateMessage, removeMessage])
 
-  return {
-    messages,
-    loading,
-    error,
-    sendMessage
+  const channelKey = userId ? `dm:${userId}` : ''
+  return { 
+    messages: messagesByChannel[channelKey] || [],
+    loading: false
   }
 } 
