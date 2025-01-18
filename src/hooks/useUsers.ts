@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import useStore from '@/store'
 import { Database } from '@/types/supabase'
+import { useRealtimeSubscription } from './useRealtimeSubscription'
 
 type Tables = Database['public']['Tables']
 type User = Tables['users']['Row']
@@ -12,7 +13,11 @@ export function useUsers() {
     userPresence,
     setUserPresence
   } = useStore()
+  const [users, setUsers] = useState<User[]>([])
   const supabase = createClient()
+
+  // Use our new realtime subscription
+  useRealtimeSubscription('users', 'all')
 
   useEffect(() => {
     async function fetchUsers() {
@@ -31,6 +36,8 @@ export function useUsers() {
         data.forEach(user => {
           setUserPresence(user.id, user.status)
         })
+
+        setUsers(data)
       } catch (error) {
         console.error('Error fetching users:', error)
       }
@@ -39,11 +46,11 @@ export function useUsers() {
     fetchUsers()
   }, [currentUser])
 
-  return { 
-    users: Object.entries(userPresence).map(([id, status]) => ({
-      id,
-      status
-    })),
-    loading: false
-  }
+  // Combine full user data with presence status
+  const usersWithPresence = users.map(user => ({
+    ...user,
+    status: userPresence[user.id] || user.status
+  }))
+
+  return { users: usersWithPresence }
 } 

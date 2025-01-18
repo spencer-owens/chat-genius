@@ -34,7 +34,9 @@ export default function DMPage() {
                   />
                 ) : (
                   <div className="h-12 w-12 rounded-full bg-gray-600 flex items-center justify-center">
-                    <span className="text-white text-lg">{user.username[0]}</span>
+                    <span className="text-white text-lg">
+                      {user.username?.charAt(0) || user.email?.charAt(0) || '?'}
+                    </span>
                   </div>
                 )}
               </div>
@@ -57,17 +59,21 @@ export default function DMPage() {
 }
 
 function MessagePreview({ userId }: { userId: string }) {
-  const { messages, loading } = useDirectMessages(userId)
-  const lastMessage = messages[messages.length - 1]
+  const { messages } = useDirectMessages(userId)
+  const lastMessage = messages[0]
 
-  if (loading || !lastMessage) {
-    return <p className="text-sm text-gray-400">No messages yet</p>
+  if (!lastMessage) {
+    return <p className="text-gray-400 text-sm">No messages yet</p>
   }
 
   return (
-    <div className="text-sm text-gray-400">
-      <span className="mr-2">{lastMessage.content}</span>
-      <span>{format(new Date(lastMessage.created_at), 'MMM d, h:mm a')}</span>
+    <div className="flex items-center justify-between mt-1">
+      <p className="text-gray-400 text-sm truncate">{lastMessage.content}</p>
+      {lastMessage.created_at && (
+        <span className="text-gray-500 text-xs">
+          {format(new Date(lastMessage.created_at), 'MMM d')}
+        </span>
+      )}
     </div>
   )
 } 

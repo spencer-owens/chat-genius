@@ -1,20 +1,21 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import useStore from '@/store'
 import { toast } from 'sonner'
-import { Database } from '@/types/supabase'
-
-type Tables = Database['public']['Tables']
-type LastReadRow = Tables['last_read']['Row']
+import { useRealtimeSubscription } from './useRealtimeSubscription'
 
 export function useUnreadCounts() {
   const { 
     currentUser,
     messagesByChannel,
-    channels
+    channels,
+    lastReadByChannel,
+    updateLastRead
   } = useStore()
-  const [lastReadByChannel, setLastReadByChannel] = useState<Record<string, string>>({})
   const supabase = createClient()
+
+  // Use our new realtime subscription
+  useRealtimeSubscription('last_read', currentUser?.id || '')
 
   useEffect(() => {
     if (!currentUser?.id) return
@@ -28,11 +29,9 @@ export function useUnreadCounts() {
 
         if (error) throw error
         if (lastReadData) {
-          const lastRead = lastReadData.reduce((acc, row) => {
-            acc[row.channel_id] = row.last_read_at
-            return acc
-          }, {} as Record<string, string>)
-          setLastReadByChannel(lastRead)
+          lastReadData.forEach(row => {
+            updateLastRead(row.channel_id, row.last_read_at)
+          })
         }
       } catch (error) {
         console.error('Error fetching last read timestamps:', error)
@@ -41,40 +40,9 @@ export function useUnreadCounts() {
     }
 
     fetchLastRead(currentUser.id)
-
-    const channel = supabase
-      .channel('last_read')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'last_read',
-          filter: `user_id=eq.${currentUser.id}`
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const row = payload.new as LastReadRow
-            setLastReadByChannel(prev => ({
-              ...prev,
-              [row.channel_id]: row.last_read_at
-            }))
-          }
-        }
-      )
-      .subscribe((status, err) => {
-        if (err) {
-          console.error('Error subscribing to last read:', err)
-          toast.error('Lost connection to unread counts')
-        }
-      })
-
-    return () => {
-      channel.unsubscribe()
-    }
   }, [currentUser])
 
-  const updateLastRead = useCallback(async (channelId: string) => {
+  const markAsRead = useCallback(async (channelId: string) => {
     if (!currentUser?.id) return
 
     try {
@@ -88,11 +56,7 @@ export function useUnreadCounts() {
         })
 
       if (error) throw error
-      
-      setLastReadByChannel(prev => ({
-        ...prev,
-        [channelId]: lastReadAt
-      }))
+      updateLastRead(channelId, lastReadAt)
     } catch (error) {
       console.error('Error updating last read:', error)
       toast.error('Failed to update read status')
@@ -117,5 +81,5 @@ export function useUnreadCounts() {
     return acc
   }, {} as Record<string, number>)
 
-  return { unreadCounts, updateLastRead }
+  return { unreadCounts, markAsRead }
 } 

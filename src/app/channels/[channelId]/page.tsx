@@ -3,7 +3,7 @@
 import MessageList from '@/components/chat/MessageList'
 import { MessageInput } from '@/components/chat/MessageInput'
 import { MessageThread } from '@/components/chat/MessageThread'
-import { useMessages } from '@/hooks/useMessages'
+import { useChannelMessages } from '@/hooks/useChannelMessages'
 import { useChannels } from '@/hooks/useChannels'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -47,18 +47,18 @@ export default function ChannelPage({ params }: PageProps) {
   const { channelId } = use(params)
   const [selectedThread, setSelectedThread] = useState<DatabaseMessage | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const { messages, loading: messagesLoading } = useMessages(channelId)
+  const { messages, loading: messagesLoading } = useChannelMessages(channelId)
   const { channels, loading: channelsLoading } = useChannels()
-  const { updateLastRead } = useUnreadCounts()
+  const { markAsRead } = useUnreadCounts()
   const { user: currentUser } = useCurrentUser()
   const supabase = createClient()
 
   // Mark channel as read when we navigate to it
   useEffect(() => {
     if (channelId && currentUser) {
-      updateLastRead(channelId)
+      markAsRead(channelId)
     }
-  }, [channelId, currentUser, updateLastRead])
+  }, [channelId, currentUser, markAsRead])
 
   const channel = channels.find(c => c.id === channelId)
 
@@ -158,7 +158,7 @@ export default function ChannelPage({ params }: PageProps) {
                 <MessageList
                   messages={messages}
                   channelId={channelId}
-                  onUpdateLastRead={() => updateLastRead(channelId)}
+                  onUpdateLastRead={() => markAsRead(channelId)}
                 />
               )}
             </div>

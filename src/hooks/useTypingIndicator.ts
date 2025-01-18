@@ -1,110 +1,66 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import useStore from '@/store'
 import { Database } from '@/types/supabase'
-import { toast } from 'sonner'
+import { useRealtimeSubscription } from './useRealtimeSubscription'
 
 type Tables = Database['public']['Tables']
-
-interface TypingStatus {
-  user_id: string
-  channel_id: string
-  last_typed_at: string
+type Channel = Tables['channels']['Row'] & {
+  memberships: Tables['memberships']['Row'][]
 }
 
 export function useTypingIndicator(channelId: string | null) {
-  const [typingUsers, setTypingUsers] = useState<Record<string, boolean>>({})
-  const { currentUser, channels } = useStore()
+  const { currentUser, channels, typingUsers } = useStore()
   const supabase = createClient()
 
-  useEffect(() => {
+  // Use our realtime subscription
+  useRealtimeSubscription('typing_status', channelId || '')
+
+  const setTyping = useCallback(async () => {
     if (!channelId || !currentUser?.id) return
 
     // Check if user has access to this channel
-    const channel = channels.find(c => c.id === channelId)
-    if (!channel || (channel.is_private && !channel.memberships.some(m => m.user_id === currentUser.id))) {
-      return
-    }
-
-    const subscription = supabase
-      .channel(`typing_${channelId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'typing_status',
-          filter: `channel_id=eq.${channelId}`
-        },
-        (payload) => {
-          if (payload.eventType === 'DELETE') {
-            setTypingUsers(prev => {
-              const next = { ...prev }
-              delete next[payload.old.user_id]
-              return next
-            })
-          } else {
-            setTypingUsers(prev => ({
-              ...prev,
-              [payload.new.user_id]: true
-            }))
-          }
-        }
-      )
-      .subscribe()
-
-    // Cleanup old typing statuses periodically
-    const cleanupInterval = setInterval(async () => {
-      try {
-        const { error } = await supabase
-          .from('typing_status')
-          .delete()
-          .eq('channel_id', channelId)
-          .lt('last_typed_at', new Date(Date.now() - 10000).toISOString()) // Remove statuses older than 10 seconds
-
-        if (error) throw error
-      } catch (error) {
-        console.error('Error cleaning up typing statuses:', error)
-      }
-    }, 10000)
-
-    return () => {
-      subscription.unsubscribe()
-      clearInterval(cleanupInterval)
-    }
-  }, [channelId, currentUser, channels])
-
-  const setTyping = useCallback(async () => {
-    if (!channelId || !currentUser?.id) {
-      return
-    }
-
-    // Check if user has access to this channel
-    const channel = channels.find(c => c.id === channelId)
+    const channel = channels.find(c => c.id === channelId) as Channel
     if (!channel || (channel.is_private && !channel.memberships.some(m => m.user_id === currentUser.id))) {
       return
     }
 
     try {
-      const typingStatus: TypingStatus = {
-        user_id: currentUser.id,
-        channel_id: channelId,
-        last_typed_at: new Date().toISOString()
-      }
-
       const { error } = await supabase
         .from('typing_status')
-        .upsert(typingStatus)
+        .upsert({
+          channel_id: channelId,
+          user_id: currentUser.id,
+          last_typed_at: new Date().toISOString()
+        })
 
       if (error) throw error
     } catch (error) {
       console.error('Error updating typing status:', error)
-      toast.error('Failed to update typing status')
     }
   }, [channelId, currentUser, channels])
 
+  const clearTyping = useCallback(async () => {
+    if (!channelId || !currentUser?.id) return
+
+    try {
+      const { error } = await supabase
+        .from('typing_status')
+        .delete()
+        .match({
+          channel_id: channelId,
+          user_id: currentUser.id
+        })
+
+      if (error) throw error
+    } catch (error) {
+      console.error('Error clearing typing status:', error)
+    }
+  }, [channelId, currentUser])
+
   return {
-    typingUsers,
-    setTyping
+    typingUsers: typingUsers[channelId || ''] || {},
+    setTyping,
+    clearTyping
   }
 } 

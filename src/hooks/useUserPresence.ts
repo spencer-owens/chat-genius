@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import useStore from '@/store'
 import { Database } from '@/types/supabase'
 import { toast } from 'sonner'
+import { useRealtimeSubscription } from './useRealtimeSubscription'
 
 type Tables = Database['public']['Tables']
 type UserStatus = Tables['users']['Row']['status']
@@ -16,6 +17,9 @@ export function useUserPresence() {
     setUserPresence
   } = useStore()
   const supabase = createClient()
+
+  // Subscribe to user status changes
+  useRealtimeSubscription('users', 'all')
 
   const getUserStatus = (userId: string): UserStatus => {
     return userPresence[userId] || 'offline'

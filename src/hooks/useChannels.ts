@@ -1,14 +1,17 @@
 import { useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import useStore from '@/store'
+import { useRealtimeSubscription } from './useRealtimeSubscription'
 
 export function useChannels() {
   const { 
     channels,
-    setChannels,
-    initializeSubscriptions
+    setChannels
   } = useStore()
   const supabase = createClient()
+
+  // Use our new realtime subscription
+  useRealtimeSubscription('channels', 'all')
 
   useEffect(() => {
     async function fetchChannels() {
@@ -32,13 +35,10 @@ export function useChannels() {
     }
 
     fetchChannels()
-    const cleanup = initializeSubscriptions()
-    
-    return cleanup
   }, [])
 
   return { 
     channels, 
-    loading: false // Loading state is now handled by the store
+    loading: false
   }
 } 

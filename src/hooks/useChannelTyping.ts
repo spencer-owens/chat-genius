@@ -1,46 +1,36 @@
-import { useEffect, useCallback, useState } from 'react'
+import { useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import useStore from '@/store'
 import { toast } from 'sonner'
+import { useRealtimeSubscription } from './useRealtimeSubscription'
 import { Database } from '@/types/supabase'
 
 type Tables = Database['public']['Tables']
-type UserRow = Tables['users']['Row']
 
 export function useChannelTyping(channelId: string | null) {
-  const { currentUser } = useStore()
-  const [typingUsers, setTypingUsers] = useState<Record<string, UserRow>>({})
+  const { 
+    currentUser,
+    typingUsers,
+    updateTypingUsers
+  } = useStore()
   const supabase = createClient()
 
-  const updateTypingStatus = useCallback(async () => {
-    if (!channelId || !currentUser?.id) return
-
-    try {
-      const { error } = await supabase
-        .from('typing_status')
-        .upsert({
-          channel_id: channelId,
-          user_id: currentUser.id,
-          last_typed_at: new Date().toISOString()
-        })
-
-      if (error) throw error
-    } catch (error) {
-      console.error('Error updating typing status:', error)
-    }
-  }, [channelId, currentUser])
+  // Use our new realtime subscription
+  useRealtimeSubscription('typing_status', channelId || '')
 
   useEffect(() => {
     if (!channelId) return
 
-    async function fetchTypingUsers(id: string) {
+    const channelIdString = channelId // Capture in a const to help TypeScript understand it's not null
+
+    async function fetchTypingUsers() {
       try {
         const query = supabase
           .from('typing_status')
           .select(`
             user:users(*)
           `)
-          .eq('channel_id', id)
+          .eq('channel_id', channelIdString)
           .gt('last_typed_at', new Date(Date.now() - 10000).toISOString())
           .not('user_id', 'is', null)
 
@@ -58,65 +48,20 @@ export function useChannelTyping(channelId: string | null) {
               acc[data.user.id] = data.user
             }
             return acc
-          }, {} as Record<string, UserRow>)
-          setTypingUsers(users)
+          }, {} as Record<string, Tables['users']['Row']>)
+          updateTypingUsers(channelIdString, users)
         }
       } catch (error) {
         console.error('Error fetching typing users:', error)
-        toast.error('Failed to load typing status')
+        toast.error('Failed to load typing users')
       }
     }
 
-    // Initial fetch
-    fetchTypingUsers(channelId)
-
-    // Set up subscription
-    const channel = supabase
-      .channel('typing')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'typing_status',
-          filter: `channel_id=eq.${channelId}`
-        },
-        async (payload) => {
-          if (payload.eventType === 'DELETE' && payload.old?.user_id) {
-            const userId = payload.old.user_id
-            if (typeof userId === 'string') {
-              setTypingUsers(prev => {
-                const next = { ...prev }
-                delete next[userId]
-                return next
-              })
-            }
-          } else {
-            // Refetch on other changes
-            fetchTypingUsers(channelId)
-          }
-        }
-      )
-      .subscribe((status, err) => {
-        if (err) {
-          console.error('Error subscribing to typing status:', err)
-          toast.error('Lost connection to typing status')
-        }
-      })
-
-    // Clean up old typing statuses periodically
-    const interval = setInterval(() => {
-      fetchTypingUsers(channelId)
-    }, 5000)
-
-    return () => {
-      channel.unsubscribe()
-      clearInterval(interval)
-    }
+    fetchTypingUsers()
   }, [channelId, currentUser])
 
   return { 
-    typingUsers: Object.values(typingUsers),
-    updateTypingStatus
+    typingUsers: typingUsers[channelId || ''] || {},
+    loading: false
   }
 } 

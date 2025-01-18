@@ -2,10 +2,7 @@ import { useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import useStore from '@/store'
 import { toast } from 'sonner'
-import { Database } from '@/types/supabase'
-
-type Tables = Database['public']['Tables']
-type UserRow = Tables['users']['Row']
+import { useRealtimeSubscription } from './useRealtimeSubscription'
 
 export function useChannelMembers(channelId: string | null) {
   const { 
@@ -13,6 +10,9 @@ export function useChannelMembers(channelId: string | null) {
     updateChannel
   } = useStore()
   const supabase = createClient()
+
+  // Use our new realtime subscription
+  useRealtimeSubscription('memberships', channelId || '')
 
   useEffect(() => {
     if (!channelId) return
@@ -39,32 +39,6 @@ export function useChannelMembers(channelId: string | null) {
     }
 
     fetchMembers(channelId)
-
-    const channel = supabase
-      .channel('memberships')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'memberships',
-          filter: `channel_id=eq.${channelId}`
-        },
-        () => {
-          // Refetch members on any change
-          fetchMembers(channelId)
-        }
-      )
-      .subscribe((status, err) => {
-        if (err) {
-          console.error('Error subscribing to channel members:', err)
-          toast.error('Lost connection to channel members')
-        }
-      })
-
-    return () => {
-      channel.unsubscribe()
-    }
   }, [channelId])
 
   if (!channelId) return { members: [] }

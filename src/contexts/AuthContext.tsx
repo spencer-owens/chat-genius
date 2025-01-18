@@ -27,7 +27,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
-  const { setCurrentUser, setChannels, setDMUsers } = useStore()
+  const { setCurrentUser, setChannels, refreshDMUsers } = useStore()
 
   // Memoize the updateUserProfile function to prevent unnecessary recreations
   const updateUserProfile = useCallback(async (session: { user: User }) => {
@@ -101,9 +101,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   // Memoize the setUserState function to ensure consistent updates
-  const setUserState = useCallback((newUser: User | null) => {
+  const setUserState = useCallback(async (newUser: User | null) => {
     setUser(newUser)
-    setCurrentUser(newUser)
+    if (newUser) {
+      // Get the full user profile from the database
+      const { data: profile } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', newUser.id)
+        .single()
+      
+      if (profile) {
+        setCurrentUser(profile)
+      }
+    } else {
+      setCurrentUser(null)
+    }
   }, [setCurrentUser])
 
   useEffect(() => {
@@ -116,7 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         if (mounted) {
           if (session?.user) {
-            setUserState(session.user)
+            await setUserState(session.user)
             // Update profile in the background
             updateUserProfile(session)
             
@@ -166,26 +179,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 .throwOnError()
 
               if (dmData) {
-                // Extract unique users excluding current user
-                const uniqueUsers = new Map()
-                dmData.forEach(msg => {
-                  const otherUser = msg.sender.id === session.user.id ? msg.receiver : msg.sender
-                  uniqueUsers.set(otherUser.id, otherUser)
-                })
-                setDMUsers(Array.from(uniqueUsers.values()))
+                await refreshDMUsers()
               }
             } catch (e) {
               console.error('Error fetching initial data:', e)
             }
           } else {
-            setUserState(null)
+            await setUserState(null)
           }
           setLoading(false)
         }
       } catch (error) {
         console.error('Error initializing auth:', error)
         if (mounted) {
-          setUserState(null)
+          await setUserState(null)
           setLoading(false)
         }
       }
@@ -200,7 +207,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!mounted) return
 
       if (session?.user) {
-        setUserState(session.user)
+        setUser(session.user)
         
         if (event === 'SIGNED_IN') {
           // Update profile in the background
@@ -213,7 +220,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
       } else {
-        setUserState(null)
+        setUser(null)
         if (event === 'SIGNED_OUT') {
           router.push('/login')
         }
