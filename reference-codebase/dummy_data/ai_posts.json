@@ -1,0 +1,12 @@
+[
+    {
+      "content": "Vector databases are a type of database designed to store, index, and query high-dimensional vectors. These vectors often represent data in an embedding space, where similar items are closer together. For example, in AI applications, text, images, or audio can be converted into numerical vector representations using machine learning models, enabling efficient similarity search and retrieval. Vector databases are essential for tasks like recommendation systems, semantic search, and working with large-scale machine learning applications."
+    },
+    {
+      "content": "Large Language Models (LLMs) are AI models trained on massive amounts of text data to understand and generate human-like text. They use architectures like Transformers and are capable of performing a variety of tasks, including summarization, translation, question answering, and more. Examples include OpenAI's GPT models and Google's PaLM. LLMs are transforming industries by enabling natural language understanding and interaction at scale."
+    },
+    {
+      "content": "Retrieval-Augmented Generation (RAG) is a technique that combines retrieval-based methods with generative AI. In RAG, a system retrieves relevant information from a knowledge base or database and uses a generative model, such as a large language model, to produce a response or generate content. This approach ensures the output is both accurate and grounded in the retrieved data, making it ideal for applications like chatbots, customer support, and document summarization."
+    }
+  ]
+  

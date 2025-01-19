@@ -1,0 +1,6 @@
+node_modules
+.env.local
+.env
+.next/
+./slack-clone-gauntlet-2425c601caf4.json
+slack-clone-gauntlet-2425c601caf4.json

@@ -1,0 +1,11 @@
+Before every change, you need to check the readme.md in the feature folder to see the current functionality. 
+
+After every change, you need to update the documentation to reflect the changes you've made. There is a readme.md in every feature folder that you need to update.
+
+whenever you are writing SQL queries or connections to the database, be sure to check the database_schema.md file to see the correct column names and types.
+
+do not create a new typescript interface without searching our code to see if a preexisting one can be repurposed. Our existing interfaces are available in the app/types folder.
+
+Do not try to run psql or supabase commands directly. Instead, print out the full query and ask the user to run it in the supabase console.
+
+The embedding model should be text-embedding-3-large. NEVER use text-embedding-3-small or any of the ada models.
