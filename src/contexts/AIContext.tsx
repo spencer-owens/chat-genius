@@ -23,7 +23,10 @@ interface AIContextType {
 
 const AIContext = createContext<AIContextType | undefined>(undefined)
 
-const API_URL = process.env.NEXT_PUBLIC_RAG_API_URL || 'http://localhost:8000'
+// Explicitly handle environments
+const API_URL = process.env.NODE_ENV === 'production'
+  ? 'https://simple-rag-production.up.railway.app'
+  : 'http://localhost:8000'
 
 export function AIProvider({ children }: { children: ReactNode }) {
   const [response, setResponse] = useState<AIResponse | null>(null)
@@ -35,6 +38,7 @@ export function AIProvider({ children }: { children: ReactNode }) {
     setError(null)
     
     try {
+      console.log('Using API URL:', API_URL) // Debug log
       const response = await fetch(`${API_URL}/ask`, {
         method: 'POST',
         headers: {
