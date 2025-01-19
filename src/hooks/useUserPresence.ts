@@ -3,22 +3,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
+import { Status } from '@/types/status'
 
 // Debug function
 const logWithTime = (message: string, data?: any) => {
   console.log(`[${new Date().toISOString()}] [UserPresence] ${message}`, data || '')
 }
 
-type UserStatus = 'online' | 'offline' | 'away'
-
 interface UserPresenceRecord {
   id: string
-  status: UserStatus
+  status: Status
   last_seen: string
 }
 
 interface UserStatusMap {
-  [userId: string]: UserStatus
+  [userId: string]: Status
 }
 
 export function useUserPresence() {
@@ -26,7 +25,7 @@ export function useUserPresence() {
   const lastStatusUpdate = useRef<number>(0)
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  const updateStatus = (status: UserStatus) => {
+  const updateStatus = (status: Status) => {
     const now = Date.now()
     // Debounce status updates to prevent excessive database calls
     if (now - lastStatusUpdate.current < 5000) {
@@ -59,7 +58,7 @@ export function useUserPresence() {
     })
   }
 
-  const getUserStatus = (userId: string): UserStatus => {
+  const getUserStatus = (userId: string): Status => {
     return userStatuses[userId] || 'offline'
   }
 
@@ -100,7 +99,7 @@ export function useUserPresence() {
         },
         (payload) => {
           const oldStatus = payload.old?.status
-          const newStatus = payload.new?.status
+          const newStatus = payload.new?.status as Status
           const userId = payload.new?.id
 
           if (userId && oldStatus !== newStatus) {

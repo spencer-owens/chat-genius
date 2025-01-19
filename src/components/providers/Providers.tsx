@@ -1,7 +1,10 @@
 'use client'
 
 import { ReactNode } from 'react'
-import { UnreadCountsProvider } from './UnreadCountsProvider'
+import { AuthProvider } from '@/contexts/AuthContext'
+import { UnreadCountsProvider } from '@/components/providers/UnreadCountsProvider'
+import { DirectMessageProvider } from '@/contexts/DirectMessageContext'
+import { ChannelProvider } from '@/contexts/ChannelContext'
 import { AIProvider } from '@/contexts/AIContext'
 
 interface ProvidersProps {
@@ -10,10 +13,16 @@ interface ProvidersProps {
 
 export function Providers({ children }: ProvidersProps) {
   return (
-    <UnreadCountsProvider>
-      <AIProvider>
-        {children}
-      </AIProvider>
-    </UnreadCountsProvider>
+    <AuthProvider>
+      <UnreadCountsProvider>
+        <DirectMessageProvider>
+          <ChannelProvider>
+            <AIProvider>
+              {children}
+            </AIProvider>
+          </ChannelProvider>
+        </DirectMessageProvider>
+      </UnreadCountsProvider>
+    </AuthProvider>
   )
 } 

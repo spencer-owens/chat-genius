@@ -63,7 +63,7 @@ export default function DMPage({ params }: PageProps) {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-gray-900">
       {error && (
         <NotificationBanner
           type="error"
@@ -107,27 +107,27 @@ export default function DMPage({ params }: PageProps) {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 flex flex-col">
+      <div className="flex-1 min-h-0 flex flex-col justify-end">
         {messagesLoading ? (
           <div className="flex-1 flex items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
           </div>
         ) : (
-          <div className="flex-1 min-h-0">
+          <div className="flex-1 overflow-y-auto">
             <MessageList
               messages={messages as Message[]}
               type="dm"
             />
           </div>
         )}
+      </div>
 
-        <div className="flex-none p-4 border-t border-gray-700">
-          <MessageInput
-            onSend={handleSendMessage}
-            dmUserId={userId}
-            placeholder={`Message ${otherUser.username}`}
-          />
-        </div>
+      <div className="flex-none p-4 border-t border-gray-700">
+        <MessageInput
+          onSend={handleSendMessage}
+          dmUserId={userId}
+          placeholder={`Message ${otherUser.username}`}
+        />
       </div>
     </div>
   )

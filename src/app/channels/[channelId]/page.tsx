@@ -6,13 +6,13 @@ import { useAuth } from '@/contexts/AuthContext'
 import { ChannelMessage, Message } from '@/types/messages'
 import { MessageList } from '@/components/chat/MessageList'
 import { MessageInput } from '@/components/chat/MessageInput'
-import { useMessages } from '@/hooks/useMessages'
+import { useChannelMessages } from '@/hooks/useChannelMessages'
 import { useState, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { NotificationBanner } from '@/components/shared/NotificationBanner'
 import { useUnreadCounts } from '@/hooks/useUnreadCounts'
 import { Status } from '@/types/status'
 import { useChannels } from '@/hooks/useChannels'
+import { MessageThread } from '@/components/chat/MessageThread'
 
 interface PageProps {
   params: Promise<{ channelId: string }>
@@ -21,11 +21,15 @@ interface PageProps {
 export default function ChannelPage({ params }: PageProps) {
   const { channelId } = use(params)
   const [error, setError] = useState<string | null>(null)
-  const { messages, loading: messagesLoading, sendMessage } = useMessages(channelId)
+  const { messages, loading: messagesLoading, sendMessage } = useChannelMessages(channelId)
   const { user: currentUser } = useAuth()
-  const { markChannelAsRead } = useUnreadCounts()
+  const { markChannelAsRead } = useUnreadCounts(currentUser)
   const { channels, loading: channelsLoading } = useChannels()
   const channel = channels?.find(c => c.id === channelId)
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
+  const selectedMessage = selectedThreadId 
+    ? messages.find(m => m.id === selectedThreadId) as ChannelMessage
+    : null
 
   useEffect(() => {
     if (channelId && currentUser) {
@@ -54,7 +58,7 @@ export default function ChannelPage({ params }: PageProps) {
   }
 
   // Convert messages to ChannelMessage type
-  const channelMessages = messages.map(m => ({
+  const channelMessages = messages.map((m: Message) => ({
     ...m,
     type: 'channel' as const,
     channel_id: channelId,
@@ -72,8 +76,7 @@ export default function ChannelPage({ params }: PageProps) {
   }
 
   const handleThreadClick = (messageId: string) => {
-    // TODO: Implement thread handling
-    console.log('Thread click:', messageId)
+    setSelectedThreadId(messageId)
   }
 
   if (channelsLoading) {
@@ -81,27 +84,36 @@ export default function ChannelPage({ params }: PageProps) {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {error && (
-        <NotificationBanner
-          type="error"
-          message={error}
-          onClose={() => setError(null)}
+    <div className="flex h-full">
+      <div className="flex-1 flex flex-col">
+        {error && (
+          <NotificationBanner
+            type="error"
+            message={error}
+            onClose={() => setError(null)}
+          />
+        )}
+
+        <MessageList
+          messages={channelMessages}
+          type="channel"
+          onReaction={handleReaction}
+          onThreadClick={handleThreadClick}
+        />
+
+        <MessageInput 
+          onSend={handleSendMessage}
+          channelId={channelId}
+          placeholder={channel ? `Type a message in #${channel.name}` : 'Type a message...'}
+        />
+      </div>
+
+      {selectedMessage && (
+        <MessageThread
+          parentMessage={selectedMessage}
+          onClose={() => setSelectedThreadId(null)}
         />
       )}
-
-      <MessageList
-        messages={channelMessages}
-        type="channel"
-        onReaction={handleReaction}
-        onThreadClick={handleThreadClick}
-      />
-
-      <MessageInput 
-        onSend={handleSendMessage}
-        channelId={channelId}
-        placeholder={channel ? `Type a message in #${channel.name}` : 'Type a message...'}
-      />
     </div>
   )
 } 

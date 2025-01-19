@@ -88,12 +88,18 @@ export function MessageList({ messages, onReaction, onThreadClick, type }: Messa
                       {onThreadClick && (
                         <button
                           onClick={() => onThreadClick(message.id)}
-                          className="text-xs text-gray-400 hover:text-white flex items-center space-x-1"
+                          className={cn(
+                            "text-xs hover:text-white flex items-center space-x-1",
+                            message.reply_count > 0 ? "text-white font-semibold" : "text-gray-400"
+                          )}
                         >
                           <span>Reply in thread</span>
                           {message.reply_count > 0 && (
-                            <span className="text-xs text-gray-500">
-                              ({message.reply_count})
+                            <span className={cn(
+                              "text-xs px-1.5 py-0.5 rounded-full",
+                              message.reply_count > 0 ? "bg-gray-700 text-white" : "text-gray-500"
+                            )}>
+                              {message.reply_count}
                             </span>
                           )}
                         </button>
