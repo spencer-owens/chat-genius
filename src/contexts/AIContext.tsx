@@ -26,7 +26,7 @@ const AIContext = createContext<AIContextType | undefined>(undefined)
 // Explicitly handle environments
 const API_URL = process.env.NODE_ENV === 'production'
   ? 'https://simple-rag-production.up.railway.app'
-  : 'http://localhost:3000'
+  : 'http://localhost:8000'  // FastAPI runs on port 8000 locally
 
 export function AIProvider({ children }: { children: ReactNode }) {
   const [response, setResponse] = useState<AIResponse | null>(null)
