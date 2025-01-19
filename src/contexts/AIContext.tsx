@@ -23,6 +23,8 @@ interface AIContextType {
 
 const AIContext = createContext<AIContextType | undefined>(undefined)
 
+const API_URL = process.env.NEXT_PUBLIC_RAG_API_URL || 'http://localhost:8000'
+
 export function AIProvider({ children }: { children: ReactNode }) {
   const [response, setResponse] = useState<AIResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -33,7 +35,7 @@ export function AIProvider({ children }: { children: ReactNode }) {
     setError(null)
     
     try {
-      const response = await fetch('https://simple-rag-production.up.railway.app/ask', {
+      const response = await fetch(`${API_URL}/ask`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -42,14 +44,21 @@ export function AIProvider({ children }: { children: ReactNode }) {
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to get answer')
+        const errorData = await response.json().catch(() => null)
+        if (response.status === 0) {
+          throw new Error('Network error - This might be a CORS issue. Please check if the API is accessible and CORS is properly configured.')
+        }
+        throw new Error(
+          errorData?.error || 
+          `Request failed with status ${response.status}: ${response.statusText}`
+        )
       }
 
       const data = await response.json()
       setResponse(data)
       
     } catch (error) {
+      console.error('Error in askQuestion:', error)
       setError(error instanceof Error ? error.message : 'An error occurred')
       setResponse(null)
     } finally {
