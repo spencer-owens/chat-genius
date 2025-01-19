@@ -26,7 +26,7 @@ const AIContext = createContext<AIContextType | undefined>(undefined)
 // Explicitly handle environments
 const API_URL = process.env.NODE_ENV === 'production'
   ? 'https://simple-rag-production.up.railway.app'
-  : 'http://localhost:8000'
+  : 'http://localhost:3000'
 
 export function AIProvider({ children }: { children: ReactNode }) {
   const [response, setResponse] = useState<AIResponse | null>(null)
@@ -43,8 +43,15 @@ export function AIProvider({ children }: { children: ReactNode }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Origin': typeof window !== 'undefined' ? window.location.origin : '',
         },
-        body: JSON.stringify({ question }),
+        credentials: 'include',
+        mode: 'cors',
+        body: JSON.stringify({ 
+          question,
+          user_id: 'anonymous' // Add user_id as required by your API
+        }),
       })
 
       if (!response.ok) {
