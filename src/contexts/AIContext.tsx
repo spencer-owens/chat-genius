@@ -33,7 +33,7 @@ export function AIProvider({ children }: { children: ReactNode }) {
     setError(null)
     
     try {
-      const response = await fetch('http://localhost:8000/ask', {
+      const response = await fetch('https://simple-rag-production.up.railway.app/ask', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
