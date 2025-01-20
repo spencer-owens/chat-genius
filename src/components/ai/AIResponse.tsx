@@ -25,7 +25,7 @@ export default function AIResponse() {
     <div className="space-y-4">
       {isLoading && (
         <div className="text-gray-600 dark:text-gray-300 animate-pulse">
-          Thinking...
+          do doo doo do do doooo doo doo doo...
         </div>
       )}
       

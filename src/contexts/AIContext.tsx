@@ -4,7 +4,12 @@ import React, { createContext, useContext, useState, ReactNode } from 'react'
 
 interface Source {
   content: string
-  score: number
+  metadata: {
+    air_date: string
+    category: string
+    value: string
+    question: string
+  }
 }
 
 interface AIResponse {
@@ -17,7 +22,7 @@ interface AIContextType {
   response: AIResponse | null
   isLoading: boolean
   error: string | null
-  askQuestion: (question: string) => Promise<void>
+  askQuestion: (question: string) => Promise<AIResponse | null>
   clearResponse: () => void
 }
 
@@ -26,7 +31,7 @@ const AIContext = createContext<AIContextType | undefined>(undefined)
 // Explicitly handle environments
 const API_URL = process.env.NODE_ENV === 'production'
   ? 'https://simple-rag-production.up.railway.app'
-  : 'http://localhost:8000'  // FastAPI runs on port 8000 locally
+  : 'http://localhost:8000'
 
 export function AIProvider({ children }: { children: ReactNode }) {
   const [response, setResponse] = useState<AIResponse | null>(null)
@@ -36,10 +41,11 @@ export function AIProvider({ children }: { children: ReactNode }) {
   const askQuestion = async (question: string) => {
     setIsLoading(true)
     setError(null)
+    setResponse(null)
     
     try {
       console.log('Using API URL:', API_URL) // Debug log
-      const response = await fetch(`${API_URL}/ask`, {
+      const response = await fetch(`${API_URL}/jeopardy`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -50,7 +56,7 @@ export function AIProvider({ children }: { children: ReactNode }) {
         mode: 'cors',
         body: JSON.stringify({ 
           question,
-          user_id: 'anonymous' // Add user_id as required by your API
+          user_id: 'anonymous'
         }),
       })
 
@@ -67,11 +73,13 @@ export function AIProvider({ children }: { children: ReactNode }) {
 
       const data = await response.json()
       setResponse(data)
+      return data
       
     } catch (error) {
       console.error('Error in askQuestion:', error)
       setError(error instanceof Error ? error.message : 'An error occurred')
       setResponse(null)
+      return null
     } finally {
       setIsLoading(false)
     }

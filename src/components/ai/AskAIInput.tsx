@@ -23,7 +23,7 @@ export default function AskAIInput() {
           type="text"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          placeholder="Ask me anything... about parkour, of course"
+          placeholder="Let's play Jeopardy!"
           className="w-full pl-12 pr-4 py-2.5 bg-gray-700/50 text-white placeholder-gray-400 rounded-lg border border-gray-600/50 focus:outline-none focus:border-gray-500"
           disabled={isLoading}
         />

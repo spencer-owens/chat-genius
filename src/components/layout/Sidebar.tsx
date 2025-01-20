@@ -68,7 +68,7 @@ const topNavItems = [
 
 const bottomNavItems = [
   { name: 'Search', href: '/search', icon: Search },
-  { name: 'Ask AI', href: '/askai', icon: Brain },
+  { name: 'Jeopardy Bot', href: '/jeopardy', icon: Brain },
   { name: 'Settings', href: '/settings', icon: Settings },
   { name: 'Admin', href: '/admin', icon: Shield },
 ]
